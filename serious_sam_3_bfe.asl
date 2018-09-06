@@ -113,9 +113,8 @@ isLoading
             vars.onContinueScreen = false;
         }
         // Netricsa is technically it's own level that can trigger this
-        if (!vars.line.Contains("NetricsaLevel.wld") &&
-            (vars.line.StartsWith("Started loading world") ||
-             vars.line.StartsWith("Finished loading world"))) {
+        if (!vars.line.Contains("NetricsaLevel.wld") && vars.line.StartsWith("Started loading world")) {
+            print(vars.line);
             vars.onContinueScreen = true;
         }
     }
