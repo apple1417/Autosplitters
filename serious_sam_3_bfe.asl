@@ -93,9 +93,11 @@ update {
     vars.cheats.Update(game);
     vars.isLoading.Update(game);
 
+    // If graphics API errors happen they'll spam the log far quicker than livesplit will update
     vars.line = "Direct3D9: API error!";
     while (vars.line.StartsWith("Direct3D9: API error!") || 
-           vars.line.StartsWith("Direct3D11: API error!")) {
+           vars.line.StartsWith("Direct3D11: API error!") ||
+           vars.line.StartsWith("OpenGL: API error!")) {
         vars.line = vars.reader.ReadLine();
         if (vars.line == null) break;
         if (vars.line.Length <= 16) continue;
