@@ -5,6 +5,7 @@ state("Sam3") {}
 
 startup {
     settings.Add("Don't start the run if cheats are active", true);
+    settings.Add("Start the run in any world", false);
     settings.Add("Split on level transitions", true);
     settings.Add("Split on defeating Ugh Zan (Experimental)", false);
     settings.Add("Split on defeating Raahloom", true);
@@ -72,13 +73,18 @@ start {
     System.Text.RegularExpressions.Regex regex = new System.Text.RegularExpressions.Regex(@"^Started simulation on '(.*?)'");
     System.Text.RegularExpressions.Match match = regex.Match(vars.line);
     if (match.Success) {
+        var world = match.Groups[1].Value;
         if (settings["Don't start the run if cheats are active"] &&
             vars.cheats.Current != 0) {
             print("Not starting the run because of cheat flags: " + vars.cheats.Current);
             return false;
+        } else if (world != "Content/SeriousSam3/Levels/01_BFE/01_CairoSquare/01_CairoSquare.wld" &&
+                   world != "Content/SeriousSam3/Levels/02_DLC/01_Philae/01_Philae.wld" &&
+                   !settings["Start the run in any world"]) {
+            print("Not starting run due to entering wrong world");
         } else {
             print("Started a new run");
-            vars.currentWorld = match.Groups[1].Value;
+            vars.currentWorld = world;
             vars.onContinueScreen = true;
             vars.inUghZanFight = false;
             timer.IsGameTimePaused = true;
@@ -112,9 +118,15 @@ isLoading
             vars.line.StartsWith("resFreeUnused")) {
             vars.onContinueScreen = false;
         }
-        // Netricsa is technically it's own level that can trigger this
-        if (!vars.line.Contains("NetricsaLevel.wld") && vars.line.StartsWith("Started loading world")) {
-            print(vars.line);
+        /*
+          Netricsa is technically it's own level that can trigger this
+          Quickloading or dying doesn't show the continue screen, and apparently wasn't always
+           getting turned off again, so no reason to check
+        */
+        if (!vars.line.Contains("NetricsaLevel.wld") &&
+            !vars.line.Contains("/SeriousSam3/SavedGames/") &&
+            vars.line.StartsWith("Started loading world")) {
+            print("Continue screen trigger:\n" + vars.line);
             vars.onContinueScreen = true;
         }
     }
