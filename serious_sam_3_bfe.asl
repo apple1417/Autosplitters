@@ -9,6 +9,7 @@ startup {
     settings.Add("Split on level transitions", true);
     settings.Add("Split on defeating Ugh Zan (Experimental)", false);
     settings.Add("Split on defeating Raahloom", true);
+    settings.Add("Remove continue screen as loads", true);
 }
 
 init {
@@ -130,7 +131,7 @@ isLoading
             vars.onContinueScreen = true;
         }
     }
-    return vars.isLoading.Current != 0 || vars.onContinueScreen;
+    return vars.isLoading.Current != 0 || (vars.onContinueScreen && settings["Remove continue screen as loads"]);
 }
 
 split {
