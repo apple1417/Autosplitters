@@ -5,11 +5,10 @@ state("Sam3") {}
 
 startup {
     settings.Add("Don't start the run if cheats are active", true);
-    settings.Add("Start the run in any world", false);
     settings.Add("Split on level transitions", true);
     settings.Add("Split on defeating Ugh Zan (Experimental)", false);
     settings.Add("Split on defeating Raahloom", true);
-    settings.Add("Remove continue screen as loads", true);
+    settings.Add("Start the run in any world", false);
 }
 
 init {
@@ -131,7 +130,7 @@ isLoading
             vars.onContinueScreen = true;
         }
     }
-    return vars.isLoading.Current != 0 || (vars.onContinueScreen && settings["Remove continue screen as loads"]);
+    return vars.isLoading.Current != 0 || vars.onContinueScreen;
 }
 
 split {
@@ -149,18 +148,23 @@ split {
         return settings["Split on level transitions"];
     }
     
-    // Ugh Zan
+    /*
+      Ugh Zan
+      The issue with Ugh Zan is that, while there is a line when the cutscene ends, that same line
+       is printed every autosave, and we have no good way of telling which one it is
+    */
     if (vars.currentWorld == "Content/SeriousSam3/Levels/01_BFE/12_HatshepsutTemple/12_HatshepsutTemple.wld") {
+        // If you're quick enough he never trys to play that sound and this bit never triggers
         if (vars.line.Contains("'Content/SeriousSam3/Sounds/Enemies/Boss_Ughzan/Snarl.wav'")) {
-            // If you're quick enough he never trys to play that sound and this bit never triggers
             vars.inUghZanFight = true;
             print("Ugh Zan sound trigger");
         }
+        // Not sure that this line always happens either
         if (vars.line.Contains("Content/SeriousSam3/Models/Levels/Egypt/Architecture/HatshepsutCanyons/Rock05_NM.tex")) {
-            // Not sure that this line always happens either
             vars.inUghZanFight = true;
             print("Ugh Zan texture trigger");
         }
+        // This line won't trigger if the user tuens autosaves off
         if (vars.inUghZanFight && vars.line.StartsWith("Requesting auto save")) {
             return settings["Split on defeating Ugh Zan (Experimental)"];
         }
