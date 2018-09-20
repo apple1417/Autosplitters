@@ -42,7 +42,7 @@ init {
     ptr = scanner.Scan(new SigScanTarget(5,
         "85 C0",       // test eax,eax
         "75 08",       // jne Sam3.exe+707DE
-        "A1 00E9FA00", // mov eax,[Sam3.exe+BAE900] { [00000003] }        <----
+        "A1 ????????", // mov eax,[Sam3.exe+BAE900] { [00000003] }        <----
         "5E",          // pop esi
         "5D"           // pop ebp
     ));
