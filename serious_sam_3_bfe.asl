@@ -1,12 +1,15 @@
 // Credit to darkid who wrote the Talos Principle Autosplitter, a lot of this code is copied from there
 // https://github.com/jbzdarkid/Autosplitters/blob/master/LiveSplit.TheTalosPrinciple.asl
 
-state("Sam3") {}
+state("Sam3") {
+    // Would prefer to use a sigscan but can't find a good one
+    int ughZanHealth : 0xBF4860, 0xC4, 0x48, 0x440;
+}
 
 startup {
     settings.Add("Don't start the run if cheats are active", true);
     settings.Add("Split on level transitions", true);
-    settings.Add("Split on defeating Ugh Zan (Experimental)", false);
+    settings.Add("Split on defeating Ugh Zan", true);
     settings.Add("Split on defeating Raahloom", true);
     settings.Add("Start the run in any world", false);
 }
@@ -23,7 +26,6 @@ init {
     string logPath = gameDir.TrimEnd("\\Bin".ToCharArray()) + "\\Log\\" + game.ProcessName + ".log";
     print("Using log path: '" + logPath + "'");
 
-
     var ptr = IntPtr.Zero;
     ptr = scanner.Scan(new SigScanTarget(3,
         "03 C3",            // add eax,ebx
@@ -38,7 +40,7 @@ init {
     vars.isLoading = new MemoryWatcher<int>(new DeepPointer(
         game.ReadValue<int>(ptr) - (int)page.BaseAddress
     ));
-    
+
     ptr = scanner.Scan(new SigScanTarget(5,
         "85 C0",       // test eax,eax
         "75 08",       // jne Sam3.exe+707DE
@@ -47,7 +49,7 @@ init {
         "5D"           // pop ebp
     ));
     if (ptr == IntPtr.Zero) {
-        print("Could not find loading pointer!");
+        print("Could not find cheats pointer!");
         return false;
     }
     vars.cheats = new MemoryWatcher<int>(new DeepPointer(
@@ -57,11 +59,11 @@ init {
     vars.foundPointers = true;
 
     try { // Wipe the log file to clear out messages from last time
-    FileStream fs = new FileStream(logPath, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
-    fs.SetLength(0);
-    fs.Close();
+        FileStream fs = new FileStream(logPath, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
+        fs.SetLength(0);
+        fs.Close();
     } catch {} // May fail if file doesn't exist.
-    vars.reader = new StreamReader(new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)); 
+    vars.reader = new StreamReader(new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite));
 }
 
 exit {
@@ -92,16 +94,16 @@ start {
         }
     }
 }
- 
+
 update {
     if (vars.foundPointers == null) return false;
 
-    vars.cheats.Update(game);
     vars.isLoading.Update(game);
+    vars.cheats.Update(game);
 
     // If graphics API errors happen they'll spam the log far quicker than livesplit will update
     vars.line = "Direct3D9: API error!";
-    while (vars.line.StartsWith("Direct3D9: API error!") || 
+    while (vars.line.StartsWith("Direct3D9: API error!") ||
            vars.line.StartsWith("Direct3D11: API error!") ||
            vars.line.StartsWith("OpenGL: API error!")) {
         vars.line = vars.reader.ReadLine();
@@ -122,11 +124,13 @@ isLoading
           Netricsa is technically it's own level that can trigger this
           Quickloading or dying doesn't show the continue screen, and apparently wasn't always
            getting turned off again, so no reason to check
+          This does mean continue screen from loading a screen on a different save won't be
+           counted out, but if you're doing that the small timeloss is the least of your worries
         */
         if (!vars.line.Contains("NetricsaLevel.wld") &&
             !vars.line.Contains("/SeriousSam3/SavedGames/") &&
             vars.line.StartsWith("Started loading world")) {
-            print("Continue screen trigger:\n" + vars.line);
+            print("Continue screen trigger: " + vars.line);
             vars.onContinueScreen = true;
         }
     }
@@ -134,8 +138,26 @@ isLoading
 }
 
 split {
+    /*
+      Ugh Zan
+      The issue with Ugh Zan is that, while there is a line when the cutscene starts, it both
+       requires autosaves to be on, and we have no good way of telling if it's the right autosave
+      Instead we have to use a pointer
+    */
+    if (vars.currentWorld == "Content/SeriousSam3/Levels/01_BFE/12_HatshepsutTemple/12_HatshepsutTemple.wld") {
+        // The pointer values still vary a lot outside of the fight, can't just check if it's 0
+        if (!vars.inUghZanFight && (current.ughZanHealth == 5000 || current.ughZanHealth == 10000)) {
+            vars.inUghZanFight = true;
+            print("Started Ugh Zan Fight");
+        }
+        if (vars.inUghZanFight && current.ughZanHealth == 0) {
+            return settings["Split on defeating Ugh Zan (Experimental)"];
+        }
+    }
+
+    // The rest of this will break if we don't have a log line
     if (vars.line == null) return false;
-    
+
     // Level Transitions
     if (vars.line.StartsWith("Changing over to ")) {
         var mapName = vars.line.Substring(17);
@@ -147,30 +169,11 @@ split {
         vars.currentWorld = mapName;
         return settings["Split on level transitions"];
     }
-    
+
     /*
-      Ugh Zan
-      The issue with Ugh Zan is that, while there is a line when the cutscene ends, that same line
-       is printed every autosave, and we have no good way of telling which one it is
+      Raahloom
+      There's literally just a scripting error when you kill him
     */
-    if (vars.currentWorld == "Content/SeriousSam3/Levels/01_BFE/12_HatshepsutTemple/12_HatshepsutTemple.wld") {
-        // If you're quick enough he never trys to play that sound and this bit never triggers
-        if (vars.line.Contains("'Content/SeriousSam3/Sounds/Enemies/Boss_Ughzan/Snarl.wav'")) {
-            vars.inUghZanFight = true;
-            print("Ugh Zan sound trigger");
-        }
-        // Not sure that this line always happens either
-        if (vars.line.Contains("Content/SeriousSam3/Models/Levels/Egypt/Architecture/HatshepsutCanyons/Rock05_NM.tex")) {
-            vars.inUghZanFight = true;
-            print("Ugh Zan texture trigger");
-        }
-        // This line won't trigger if the user tuens autosaves off
-        if (vars.inUghZanFight && vars.line.StartsWith("Requesting auto save")) {
-            return settings["Split on defeating Ugh Zan (Experimental)"];
-        }
-    }
-    
-    // Raahloom
     if (vars.currentWorld == "Content/SeriousSam3/Levels/02_DLC/03_TempleOfSethirkopshef/03_TempleOfSethirkopshef.wld" &&
         vars.line.StartsWith("Lua error: [Script entity id = 4132 (Script_Boss)]:25")) {
         return settings["Split on defeating Raahloom"];
