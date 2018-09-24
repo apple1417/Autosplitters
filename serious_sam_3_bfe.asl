@@ -3,7 +3,7 @@
 
 state("Sam3") {
     // Would prefer to use a sigscan but can't find a good one
-    int ughZanHealth : 0xBF4860, 0xC4, 0x48, 0x440;
+    int ughZanHealth : 0xBF4DD8, 0xCC, 0x48, 0x450;
 }
 
 startup {
