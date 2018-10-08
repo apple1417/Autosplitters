@@ -9,7 +9,7 @@ state("Sam3") {
 startup {
     settings.Add("Don't start the run if cheats are active", true);
     settings.Add("Split on level transitions", true);
-    settings.Add("Split on defeating Ugh Zan", true);
+    settings.Add("Split on defeating Ugh Zan (Experimental)", false);
     settings.Add("Split on defeating Raahloom", true);
     settings.Add("Start the run in any world", false);
 }
