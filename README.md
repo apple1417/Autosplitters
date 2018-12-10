@@ -8,6 +8,10 @@ Livesplit autosplitters for various games.
 - Ending splits for defeating the final boss in both the main and dlc campaigns
 - Uses sig scans and log messages, so should work for all versions
 
+##### serious_sam_3_bfe.asl
+- Starts upon entering any puzzle
+- Splits upon solving puzzles
+
 ##### talos_principle.asl
 - Fork of Talos Principle autosplitter available [here](https://github.com/jbzdarkid/Autosplitters/blob/master/LiveSplit.TheTalosPrinciple.asl), has mostly the same features
 - Removes loads when changing graphics options
