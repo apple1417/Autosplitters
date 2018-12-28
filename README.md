@@ -17,8 +17,12 @@ Livesplit autosplitters for various games.
 - Removes loads when changing graphics options
 - Uses sig scans, so should work for all versions
 
-##### talos_qrs
+##### talos_qrs.asl
 - For Talos Principle All Achievements runs
 - Splits when total QR count changes, will stop when maximum reached
 - Updates first text component in layout to show current QR count
 - Uses sig scans, so should work for all versions
+
+##### talos_speed.asl
+- Overwrites your first 5 text components with your player speed
+- Made for version 326589, probaby breaks everywhere else
