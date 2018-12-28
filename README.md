@@ -26,4 +26,4 @@ Livesplit autosplitters for various games.
 
 ##### talos_speed.asl
 - Overwrites your first 5 text components with your player speed
-- Made for version 326589, probaby breaks everywhere else
+- Made for version 326589, 32-bit unmodded, probaby breaks everywhere else
