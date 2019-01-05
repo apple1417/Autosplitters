@@ -9,7 +9,7 @@ state("Sam3") {
 startup {
     settings.Add("Don't start the run if cheats are active", true);
     settings.Add("Split on level transitions", true);
-    settings.Add("Split on defeating Ugh Zan (Experimental)", false);
+    settings.Add("Split on defeating Ugh Zan (Experimental)", true);
     settings.Add("Split on defeating Raahloom", true);
     settings.Add("Start the run in any world", false);
 }
@@ -21,7 +21,7 @@ init {
     vars.foundPointers = false;
     vars.currentWorld = "";
     vars.onContinueScreen = false;
-    vars.inUghZanFight = false;
+    vars.ughZanFightStage = 0;
 
     string logPath = gameDir.TrimEnd("\\Bin".ToCharArray()) + "\\Log\\" + game.ProcessName + ".log";
     print("Using log path: '" + logPath + "'");
@@ -88,7 +88,7 @@ start {
             print("Started a new run");
             vars.currentWorld = world;
             vars.onContinueScreen = true;
-            vars.inUghZanFight = false;
+            vars.ughZanFightStage = 0;
             timer.IsGameTimePaused = true;
             return true;
         }
@@ -143,14 +143,29 @@ split {
       The issue with Ugh Zan is that, while there is a line when the cutscene starts, it both
        requires autosaves to be on, and we have no good way of telling if it's the right autosave
       Instead we have to use a pointer
+      Unfortuantly this pointer is also used for a lot of other things outside of the fight
+      It also occasionally drops to 0 during the fight for multiple frames for some reason
     */
     if (vars.currentWorld == "Content/SeriousSam3/Levels/01_BFE/12_HatshepsutTemple/12_HatshepsutTemple.wld") {
-        // The pointer values still vary a lot outside of the fight, can't just check if it's 0
-        if (!vars.inUghZanFight && (current.ughZanHealth == 5000 || current.ughZanHealth == 10000)) {
-            vars.inUghZanFight = true;
+        // Here's hoping it never randomly jumps to these values outside the fight
+        if (vars.ughZanFightStage == 0
+            && (current.ughZanHealth == 5000 || current.ughZanHealth == 10000)) {
+            
+            vars.ughZanFightStage = 1;
             print("Started Ugh Zan Fight");
         }
-        if (vars.inUghZanFight && current.ughZanHealth == 0) {
+        
+        // Count how many frames in a row health has been at 0
+        if (vars.ughZanFightStage > 0) {
+            if (current.ughZanHealth != 0) {
+                vars.ughZanFightStage = 1;
+            } else {
+                vars.ughZanFightStage++;
+            }
+        }
+        
+        // If health has been at 0 for long enough we can be sure he's dead
+        if (vars.ughZanFightStage == 4) {
             return settings["Split on defeating Ugh Zan (Experimental)"];
         }
     }
