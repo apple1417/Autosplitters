@@ -1,5 +1,6 @@
 ### Autosplitters
 Livesplit autosplitters for various games.
+These don't all necessarily do autosplitting or load removal, livesplit is just a nice tool to quickly do some memory reading with.
 
 ##### serious_sam_3_bfe.asl
 - Starts upon loading any level
@@ -26,4 +27,8 @@ Livesplit autosplitters for various games.
 
 ##### talos_speed.asl
 - Overwrites your first 5 text components with your player speed
-- Made for version 326589, 32-bit unmodded, probaby breaks everywhere else
+- Made for version 326589, 32-bit unmodded, probably breaks everywhere else
+
+##### talos_csv.asl
+- Saves your position and speed to a csv file while the timer is running
+- Made for version 326589, 32-bit unmodded, probably breaks everywhere else
