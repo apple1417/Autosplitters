@@ -30,5 +30,5 @@ These don't all necessarily do autosplitting or load removal, livesplit is just 
 - Made for version 326589, 32-bit unmodded, probably breaks everywhere else
 
 ##### talos_csv.asl
-- Saves your position and speed to a csv file while the timer is running
+- Saves your position, speed, and distances traveled last frame (delta) to a csv file while the timer is running
 - Made for version 326589, 32-bit unmodded, probably breaks everywhere else
