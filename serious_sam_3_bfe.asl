@@ -1,4 +1,4 @@
-// Credit to darkid who wrote the Talos Principle Autosplitter, a lot of this code is copied from there
+// Credit to darkid who wrote the Talos Principle Autosplitter, this is heavily based off of that
 // https://github.com/jbzdarkid/Autosplitters/blob/master/LiveSplit.TheTalosPrinciple.asl
 
 state("Sam3") {
@@ -12,6 +12,20 @@ startup {
     settings.Add("Split on defeating Ugh Zan (Experimental)", true);
     settings.Add("Split on defeating Raahloom", true);
     settings.Add("Start the run in any world", false);
+    
+    // Setup autosplitter log file
+    vars.logFilePath = Directory.GetCurrentDirectory() + "\\autosplitter_ss3.log";
+    vars.log = (Action<string>)((string logLine) => {
+        print(logLine);
+        string time = System.DateTime.Now.ToString("yyyy-MM-dd hh:mm:ss.fff");
+        System.IO.File.AppendAllText(vars.logFilePath, time + ": " + logLine + "\r\n");
+    });
+    try {
+        vars.log("Autosplitter loaded");
+    } catch (System.IO.FileNotFoundException e) {
+        System.IO.File.Create(vars.logFilePath);
+        vars.log("Autosplitter loaded, log file created");
+    }
 }
 
 init {
@@ -23,9 +37,6 @@ init {
     vars.onContinueScreen = false;
     vars.ughZanFightStage = 0;
 
-    string logPath = gameDir.TrimEnd("\\Bin".ToCharArray()) + "\\Log\\" + game.ProcessName + ".log";
-    print("Using log path: '" + logPath + "'");
-
     var ptr = IntPtr.Zero;
     ptr = scanner.Scan(new SigScanTarget(3,
         "03 C3",            // add eax,ebx
@@ -34,7 +45,7 @@ init {
         "83 3D ???????? 00" // cmp dword ptr [Sam3.exe+C0852C],00 { 0 }
     ));
     if (ptr == IntPtr.Zero) {
-        print("Could not find loading pointer!");
+        vars.log("Could not find loading pointer!");
         return false;
     }
     vars.isLoading = new MemoryWatcher<int>(new DeepPointer(
@@ -49,7 +60,7 @@ init {
         "5D"           // pop ebp
     ));
     if (ptr == IntPtr.Zero) {
-        print("Could not find cheats pointer!");
+        vars.log("Could not find cheats pointer!");
         return false;
     }
     vars.cheats = new MemoryWatcher<int>(new DeepPointer(
@@ -58,6 +69,10 @@ init {
 
     vars.foundPointers = true;
 
+
+    string logPath = gameDir.TrimEnd("\\Bin".ToCharArray()) + "\\Log\\" + game.ProcessName + ".log";
+    vars.log("Using log path: '" + logPath + "'");
+    
     try { // Wipe the log file to clear out messages from last time
         FileStream fs = new FileStream(logPath, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
         fs.SetLength(0);
@@ -72,20 +87,24 @@ exit {
 
 start {
     if (vars.line == null) return false;
+    
     System.Text.RegularExpressions.Regex regex = new System.Text.RegularExpressions.Regex(@"^Started simulation on '(.*?)'");
     System.Text.RegularExpressions.Match match = regex.Match(vars.line);
     if (match.Success) {
-        var world = match.Groups[1].Value;
-        if (settings["Don't start the run if cheats are active"] &&
-            vars.cheats.Current != 0) {
-            print("Not starting the run because of cheat flags: " + vars.cheats.Current);
+        string world = match.Groups[1].Value;
+        
+        // Cheats
+        if (settings["Don't start the run if cheats are active"] && vars.cheats.Current != 0) {
+            vars.log("Not starting the run because of cheat flags: " + vars.cheats.Current);
             return false;
-        } else if (world != "Content/SeriousSam3/Levels/01_BFE/01_CairoSquare/01_CairoSquare.wld" &&
-                   world != "Content/SeriousSam3/Levels/02_DLC/01_Philae/01_Philae.wld" &&
-                   !settings["Start the run in any world"]) {
-            print("Not starting run due to entering wrong world");
+        // Wrong starting world
+        } else if (world != "Content/SeriousSam3/Levels/01_BFE/01_CairoSquare/01_CairoSquare.wld"
+                   && world != "Content/SeriousSam3/Levels/02_DLC/01_Philae/01_Philae.wld"
+                   && !settings["Start the run in any world"]) {
+            vars.log("Not starting run due to entering wrong world");
+        // Actually start run
         } else {
-            print("Started a new run");
+            vars.log("Started a new run");
             vars.currentWorld = world;
             vars.onContinueScreen = true;
             vars.ughZanFightStage = 0;
@@ -101,16 +120,15 @@ update {
     vars.isLoading.Update(game);
     vars.cheats.Update(game);
 
-    // If graphics API errors happen they'll spam the log far quicker than livesplit will update
-    vars.line = "Direct3D9: API error!";
-    while (vars.line.StartsWith("Direct3D9: API error!") ||
-           vars.line.StartsWith("Direct3D11: API error!") ||
-           vars.line.StartsWith("OpenGL: API error!")) {
+    do {
         vars.line = vars.reader.ReadLine();
         if (vars.line == null) break;
         if (vars.line.Length <= 16) continue;
         vars.line = vars.line.Substring(16); // Removes the date and log level from the line
-    }
+    // If graphics API errors happen they'll spam the log far quicker than livesplit will update
+    } while (vars.line.StartsWith("Direct3D9: API error!")
+             || vars.line.StartsWith("Direct3D11: API error!")
+             || vars.line.StartsWith("OpenGL: API error!"));
 }
 
 isLoading
@@ -127,10 +145,11 @@ isLoading
           This does mean continue screen from loading a screen on a different save won't be
            counted out, but if you're doing that the small timeloss is the least of your worries
         */
-        if (!vars.line.Contains("NetricsaLevel.wld") &&
-            !vars.line.Contains("/SeriousSam3/SavedGames/") &&
-            vars.line.StartsWith("Started loading world")) {
-            print("Continue screen trigger: " + vars.line);
+        if (!vars.line.Contains("NetricsaLevel.wld")
+            && !vars.line.Contains("/SeriousSam3/SavedGames/")
+            && vars.line.StartsWith("Started loading world")) {
+                
+            vars.log("Continue screen trigger: " + vars.line);
             vars.onContinueScreen = true;
         }
     }
@@ -143,30 +162,37 @@ split {
       The issue with Ugh Zan is that, while there is a line when the cutscene starts, it both
        requires autosaves to be on, and we have no good way of telling if it's the right autosave
       Instead we have to use a pointer
-      Unfortuantly this pointer is also used for a lot of other things outside of the fight
-      It also occasionally drops to 0 during the fight for multiple frames for some reason
+      Unfortuantly the best pointer I can find, to his health, sucks, it's reused for all sorts of
+       things and it occasionally drops to 0 for multiple frames in a row during the fight
     */
-    if (vars.currentWorld == "Content/SeriousSam3/Levels/01_BFE/12_HatshepsutTemple/12_HatshepsutTemple.wld") {
-        // Here's hoping it never randomly jumps to these values outside the fight
+    if (settings["Split on defeating Ugh Zan (Experimental)"]
+        && vars.currentWorld == "Content/SeriousSam3/Levels/01_BFE/12_HatshepsutTemple/12_HatshepsutTemple.wld") {
         if (vars.ughZanFightStage == 0
-            && (current.ughZanHealth == 5000 || current.ughZanHealth == 10000)) {
+            // Here's hoping it never randomly jumps to these values outside the fight
+            && (current.ughZanHealth == 5000 || current.ughZanHealth == 7500 || current.ughZanHealth == 10000)) {
             
             vars.ughZanFightStage = 1;
-            print("Started Ugh Zan Fight");
+            vars.log("Started Ugh Zan Fight");
         }
         
         // Count how many frames in a row health has been at 0
         if (vars.ughZanFightStage > 0) {
             if (current.ughZanHealth != 0) {
                 vars.ughZanFightStage = 1;
-            } else {
+            /*
+              If health has been at 0 for long enough we can assume he's dead
+              I've never seen more than 4 frames of fake 0s in a row before, add one to be safe,
+               meaning we need to wait until the stage is 6
+              Cause livesplit is 60hz this also happens to be exactly 0.1s late if that ever matters
+            */
+            } else if (vars.ughZanFightStage == 6) {
+                vars.log("Assuming Ugh Zan dead, splitting");
+                vars.ughZanFightStage = 0;
+                return true;
+            } else  {
+                vars.log("Ugh Zan 0 HP for " +  vars.ughZanFightStage.ToString() + " frames");
                 vars.ughZanFightStage++;
             }
-        }
-        
-        // If health has been at 0 for long enough we can be sure he's dead
-        if (vars.ughZanFightStage == 4) {
-            return settings["Split on defeating Ugh Zan (Experimental)"];
         }
     }
 
@@ -180,7 +206,7 @@ split {
         if (mapName == vars.currentWorld) {
           return false;
         }
-        print("Changed worlds from " + vars.currentWorld + " to " + mapName);
+        vars.log("Changed worlds from " + vars.currentWorld + " to " + mapName);
         vars.currentWorld = mapName;
         return settings["Split on level transitions"];
     }
