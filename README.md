@@ -9,10 +9,20 @@ These don't all necessarily do autosplitting or load removal, livesplit is just 
 - Ending splits for defeating the final boss in both the main and dlc campaigns
 - Uses sig scans and log messages, so should work for all versions
 
+##### serious_sam_revolution.asl
+- Starts upon loading any level (specifically network client being initialized)
+- Removes loading screens
+- Splits on loading screens
+- Uses sig scans, so should work for all versions
+
 ##### sigils_of_elohim.asl
 - Starts upon entering any puzzle
 - Splits upon solving puzzles
 - Syncs in game timers
+
+##### talos_csv.asl
+- Saves your position, speed, and distances traveled last frame (delta) to a csv file while the timer is running
+- Made for version 326589, 32-bit unmodded, probably breaks everywhere else
 
 ##### talos_principle.asl
 - Fork of Talos Principle autosplitter available [here](https://github.com/jbzdarkid/Autosplitters/blob/master/LiveSplit.TheTalosPrinciple.asl), has mostly the same features
@@ -27,8 +37,4 @@ These don't all necessarily do autosplitting or load removal, livesplit is just 
 
 ##### talos_speed.asl
 - Overwrites your first 5 text components with your player speed
-- Made for version 326589, 32-bit unmodded, probably breaks everywhere else
-
-##### talos_csv.asl
-- Saves your position, speed, and distances traveled last frame (delta) to a csv file while the timer is running
 - Made for version 326589, 32-bit unmodded, probably breaks everywhere else
