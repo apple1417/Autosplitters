@@ -82,10 +82,14 @@ update {
 }
 
 start {
-    if (settings["Don't start the run if cheats are active"] && vars.cheats.Current != 0) {
-        return false;
+    if (vars.isInGame.Current == 1 &&  vars.isInGame.Old == 0) {
+        if (settings["Don't start the run if cheats are active"] && vars.cheats.Current != 0) {
+            return false;
+        }
+        
+        vars.justStarted = true;
+        return true;
     }
-    return vars.isInGame.Current == 1 &&  vars.isInGame.Old == 0;
 }
 
 exit {
@@ -93,8 +97,14 @@ exit {
 }
 
 split {
-    if (settings["Split on loading screens"]) {
-        return vars.isLoading.Current == 1 && vars.isLoading.Old == 0;
+    if (vars.isLoading.Current == 0 && vars.isLoading.Old == 1) {
+        // This prevents splitting right after you load for the first time
+        if (vars.justStarted) {
+            vars.justStarted = false;
+            return false;
+        }
+        
+        return settings["Split on loading screens"];
     }
 }
 
