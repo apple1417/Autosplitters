@@ -17,6 +17,7 @@ init {
     
     var scanner = new SignatureScanner(game, engine.BaseAddress, engine.ModuleMemorySize);
     vars.foundPointers = false;
+    vars.justStarted = false;
 
     var ptr = IntPtr.Zero;
     ptr = scanner.Scan(new SigScanTarget(5,
