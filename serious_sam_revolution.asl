@@ -7,7 +7,6 @@
 state("SeriousSam") {}
 
 startup {
-    settings.Add("Don't start the run if cheats are active", true);
     settings.Add("Split on loading screens", true);
 }
 
@@ -39,7 +38,7 @@ init {
     
     ptr = scanner.Scan(new SigScanTarget(4,
         /*
-          This is CCommunicationInterface.cci_bClientInitialized, finding it from
+          This is CCommunicationInterface.cci_bInitialized, finding it from
            CSessionState::MakeSynchronisationCheck()
         */
         "8B D9",                // mov ebx,ecx
@@ -54,23 +53,6 @@ init {
         game.ReadValue<int>(ptr) - (int)page.BaseAddress
     ));
 
-    ptr = scanner.Scan(new SigScanTarget(2,
-        /*
-          This is Engine.cht_bEnable, finding it from CNetworkLibrary::GetNetworkTimeFactor()
-          Suprisingly few places actually directly reference it
-        */
-        "83 3D ???????? 00",    // cmp dword ptr [Engine.cht_bEnable],00 { 0 }      <---
-        "74 07",                // je Engine.CNetworkLibrary::GetNetworkTimeFactor+10
-        "D9 81 ????????"        // fld dword ptr [ecx+0000134C]
-    ));
-    if (ptr == IntPtr.Zero) {
-        print("Could not find cheats pointer!");
-        return false;
-    }
-    vars.cheats = new MemoryWatcher<int>(new DeepPointer(
-        game.ReadValue<int>(ptr) - (int)page.BaseAddress
-    ));
-
     vars.foundPointers = true;
 }
 
@@ -79,15 +61,10 @@ update {
 
     vars.isLoading.Update(game);
     vars.isInGame.Update(game);
-    vars.cheats.Update(game);
 }
 
 start {
     if (vars.isInGame.Current == 1 &&  vars.isInGame.Old == 0) {
-        if (settings["Don't start the run if cheats are active"] && vars.cheats.Current != 0) {
-            return false;
-        }
-        
         vars.justStarted = true;
         return true;
     }
