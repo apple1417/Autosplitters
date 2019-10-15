@@ -8,6 +8,7 @@ state("SeriousSam") {}
 
 startup {
     settings.Add("Split on loading screens", true);
+    settings.Add("Split on collecting secrets (host only)", false);
 }
 
 init {
@@ -21,7 +22,7 @@ init {
     var ptr = IntPtr.Zero;
     ptr = scanner.Scan(new SigScanTarget(5,
         /*
-         This is CSoundLibrary._bMuted, finding it from the function SoundLibrary::Mute()
+         This is CSoundLibrary._bMuted, finding it from the function Engine.SoundLibrary::Mute
          In practice they only ever call it to mute for loading screens, if you set your volume to
           0 it will still be false
         */
@@ -29,28 +30,47 @@ init {
         "C7 05 ???????? 01000000"   // mov [Engine._pSound+1C],00000001 { 0 }       <---
     ));
     if (ptr == IntPtr.Zero) {
-        print("Could not find isLoading pointer!");
+        print("Could not find pointer to CSoundLibrary._bMuted!");
         return false;
     }
     vars.isLoading = new MemoryWatcher<int>(new DeepPointer(
         game.ReadValue<int>(ptr) - (int)page.BaseAddress
     ));
-    
+
     ptr = scanner.Scan(new SigScanTarget(4,
         /*
           This is CCommunicationInterface.cci_bInitialized, finding it from
-           CSessionState::MakeSynchronisationCheck()
+           Engine.CSessionState::MakeSynchronisationCheck
         */
         "8B D9",                // mov ebx,ecx
         "83 3D ???????? 00",    // cmp dword ptr [Engine._cmiComm+C],00 { 0 }       <---
         "0F84 ????????"         // je Engine.CSessionState::MakeSynchronisationCheck+142
     ));
     if (ptr == IntPtr.Zero) {
-        print("Could not find isInGame pointer!");
+        print("Could not find pointer to CCommunicationInterface.cci_bInitialized!");
         return false;
     }
     vars.isInGame = new MemoryWatcher<int>(new DeepPointer(
         game.ReadValue<int>(ptr) - (int)page.BaseAddress
+    ));
+
+    ptr = scanner.Scan(new SigScanTarget(3,
+        /*
+          Finding Engine._pNetwork through Engine.CSteam::UpdateSteamLobbyData
+          This obviously isn't a function in the source
+        */
+        "8B F1",                // mov esi,ecx
+        "A1 ????????",          // mov eax,[Engine._pNetwork] { (02E799A0) }        <---
+        "85 C0"                 // test eax,eax
+    ));
+    if (ptr == IntPtr.Zero) {
+        print("Could not find pointer to Engine._pNetwork!");
+        return false;
+    }
+    // See https://gist.github.com/apple1417/cb95c9dac1bf2f00b5d2afff02d094fb
+    vars.secretCount = new MemoryWatcher<int>(new DeepPointer(
+        game.ReadValue<int>(ptr) - (int)page.BaseAddress,
+        0x20, 0x4, 0x4, 0x2BB0
     ));
 
     vars.foundPointers = true;
@@ -61,6 +81,7 @@ update {
 
     vars.isLoading.Update(game);
     vars.isInGame.Update(game);
+    vars.secretCount.Update(game);
 }
 
 start {
@@ -83,6 +104,10 @@ split {
         }
         
         return settings["Split on loading screens"];
+    }
+    
+    if (vars.secretCount.Current > vars.secretCount.Old) {
+        return settings["Split on collecting secrets (host only)"];
     }
 }
 
