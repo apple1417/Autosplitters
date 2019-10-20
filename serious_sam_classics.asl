@@ -21,22 +21,60 @@ init {
     var exe = modules.First();
     var engine = modules.Where(m => m.ModuleName == "Engine.dll").First();
     
-    // TODO: This won't survive an update
-    if (exe.ModuleMemorySize == 610304) {
-        version = "TFE";
-    } else if (exe.ModuleMemorySize == 843776) {
-        version = "TSE";
-    } else if (exe.ModuleMemorySize == 1032192) {
-        version = "Revolution";
-    } else {
-        version = "Unknown";
-        return false;
-    }
-    
     var exeScanner = new SignatureScanner(game, exe.BaseAddress, exe.ModuleMemorySize);
     var engineScanner = new SignatureScanner(game, engine.BaseAddress, engine.ModuleMemorySize);
     vars.allPointers = new List<MemoryWatcher>();
     var ptr = IntPtr.Zero;
+    
+    /*
+      Try extract the version information to work out the game
+      TFE and TSE use a major and minor version that's just a define, Rev uses a string
+    */
+    ptr = engineScanner.Scan(new SigScanTarget(6,
+        "E8 ????????",                  // call Engine.CON_GetBufferSize+480
+        "6A ??",                        // push 07                          <--- Minor Version
+        "68 ????????",                  // push 00002710                    <--- Major Version
+        "6A 04",                        // push 04
+        "68 ????????"                   // push Engine._ulEngineBuildMinor+118
+    ));
+    if (ptr != IntPtr.Zero) {
+        byte minor = game.ReadValue<byte>(ptr);
+        int major = game.ReadValue<int>(IntPtr.Add(ptr, 2));
+        
+        if (major == 10000 && minor == 5) {
+            version = "TFE";
+        } else if (major == 10000 && minor == 7) {
+            version = "TSE";
+        } else {
+            print("Unknown version: " + major.ToString() + "." + minor.ToString());
+            version = "Unknown";
+            return false;
+        }
+    } else {
+        // If we didn't find the last sigscan then assume it's revolution, and double check
+        ptr = engineScanner.Scan(new SigScanTarget(2,
+            "FF 35 ????????",           // push [Engine._SE_VER_STRING]
+            "8D 85 30FFFFFF"            // lea eax,[ebp-000000D0]
+        ));
+        if (ptr == IntPtr.Zero) {
+            print("Could not find pointers to determine version!");
+            return false;
+        }
+        
+        IntPtr versionPtr = new IntPtr(game.ReadValue<int>(new IntPtr(game.ReadValue<int>(ptr))));
+        // Technically this is a string, but we'll just check the first few bytes ("AP_3") as an int
+        int firstValue = game.ReadValue<int>(versionPtr);
+        // ReadValue seems to flip this
+        if (firstValue == 0x335F5041) {
+            version = "Revolution";
+        } else {
+            print("Unknown version, starts with " + firstValue.ToString("X"));
+            version = "Unknown";
+            return false;
+        }
+    }
+    
+    // Find all the pointers we need
     
     /*
       This matches part of a conditional in Menu.StartMenus() as follows:
