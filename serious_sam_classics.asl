@@ -3,9 +3,9 @@
    which help a lot when working on this.
   https://github.com/Croteam-official/Serious-Engine
   
-  Despite this, the three games all use slightly different code (all different from the source too),
-   which does mean some of the pointer offsets need to change between them, but once we've found
-   them everything works the same
+  Despite this, the three games, and the gog versions, all use slightly different code (all
+   different from the source too), which does mean some of the pointer offsets and sigscans need to
+   change between them, but once we've found the pointers everything works the same
 */
 
 state("SeriousSam") {}
@@ -50,6 +50,16 @@ init {
             version = "Unknown";
             return false;
         }
+        
+        /*
+          The steam version ships with some 64-bit exes that GOG doesn't have (and renames the
+           32-bit ones), which we can use to tell them apart.
+          There are also some memory differences but they're hard to find when I only have the steam
+           version.
+        */
+        if (!File.Exists(Path.GetDirectoryName(exe.FileName) + "\\SeriousModeler32.exe")) {
+            version += "-GOG";
+        }
     } else {
         // If we didn't find the last sigscan then assume it's revolution, and double check
         ptr = engineScanner.Scan(new SigScanTarget(2,
@@ -58,6 +68,7 @@ init {
         ));
         if (ptr == IntPtr.Zero) {
             print("Could not find pointers to determine version!");
+            version = "Error";
             return false;
         }
         
@@ -81,6 +92,7 @@ init {
         `pgmCurrentMenu == &_pGUIM->gmMainMenu`
       As it happens this is the exact check we want to replicate to check resets, so we can
        extract both addresses at once
+      We only care about the main menu address, not actually it's contents, so we just save that
     */
     if (version == "Revolution") {
         ptr = exeScanner.Scan(new SigScanTarget(1,
@@ -88,23 +100,35 @@ init {
             "83 C4 04",                 // add esp,04
             "3D ????????"               // cmp eax,SeriousSam.exe+952D0     <--- &_pGUIM->gmMainMenu
         ));
-    } else {
+        vars.mainMenu = game.ReadValue<int>(ptr + 8);
+    } else if (version == "TFE" || version == "TSE") {
         ptr = exeScanner.Scan(new SigScanTarget(5,
             // Technically this matches something in engine too, but we're using the exe scanner :)
             "83 C4 04",                 // add esp,04
             "81 3D ???????? ????????"   // cmp [SeriousSam.exe+989A4],SeriousSam.exe+94490
                                         //         pgmCurrentMenu      &_pGUIM->gmMainMenu
         ));
+        vars.mainMenu = game.ReadValue<int>(ptr + 4);
+    // TODO: TSE GOG is untested
+    } else if (version == "TFE-GOG" || version == "TSE-GOG") {
+        print("Couldn't find menu pointer, testing for GOG version");
+        ptr = exeScanner.Scan(new SigScanTarget(1,
+            "a1 ????????",              // mov eax, ds:0x442c2c             <--- pgmCurrentMenu
+            "8b 0d ????????",           // mov ecx, DWORD PTR ds:0x442bf4
+            "83 c4 04",                 // add esp, 0x4
+            "3d ????????"               // cmp eax, 0x43e718                <--- &_pGUIM->gmMainMenu
+        ));
+        vars.mainMenu = game.ReadValue<int>(ptr + 14);
     }
     if (ptr == IntPtr.Zero) {
         print("Could not find menu pointers!");
+        version = "Error";
         return false;
     }
     vars.currentMenu = new MemoryWatcher<int>(new DeepPointer(
         game.ReadValue<int>(ptr) - (int)exe.BaseAddress
     ));
-    // Only need the address here, don't care about the contents
-    vars.mainMenu = game.ReadValue<int>(ptr + ((version == "Revolution") ? 8 : 4));
+    
     vars.allPointers.Add(vars.currentMenu);
 
     /*
@@ -127,6 +151,7 @@ init {
     }
     if (ptr == IntPtr.Zero) {
         print("Could not find pointer to CSoundLibrary._bMuted!");
+        version = "Error";
         return false;
     }
     vars.isMuted = new MemoryWatcher<int>(new DeepPointer(
@@ -147,6 +172,7 @@ init {
     ));
     if (ptr == IntPtr.Zero) {
         print("Could not find pointer to Engine._pNetwork!");
+        version = "Error";
         return false;
     }
     var _pNetwork = game.ReadValue<int>(ptr) - (int)exe.BaseAddress;
@@ -165,8 +191,10 @@ init {
     
     var secretOffset = 0;
     switch (version) {
-        case "TFE": secretOffset = 0x1274; break;
-        case "TSE": secretOffset = 0x25B8; break;
+        case "TFE":
+        case "TFE-GOG": secretOffset = 0x1274; break;
+        case "TSE":
+        case "TSE-GOG": secretOffset = 0x25B8; break;
         case "Revolution": secretOffset = 0x2BB0; break;
         default: print("Invalid version"); return false;
     }
