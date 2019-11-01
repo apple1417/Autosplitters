@@ -11,8 +11,11 @@
 state("SeriousSam") {}
 
 startup {
-    settings.Add("Split on finishing level", true);
-    settings.Add("Split on collecting secrets (host only)", false);
+    settings.Add("start_no_auto", false, "Don't guess start trigger based off of version");
+    settings.Add("start_level", false, "Start on level load", "start_no_auto");
+    settings.Add("start_netricsa", false, "Start on exiting Netricsa", "start_no_auto");
+    settings.Add("split_level", true, "Split on finishing level");
+    settings.Add("split_secret", false, "Split on collecting secrets (host only)");
 }
 
 init {
@@ -88,7 +91,41 @@ init {
     // Find all the pointers we need
     
     /*
-      This matches part of a conditional in Menu.StartMenus() as follows:
+      Find _pGame.gm_csComputerState through DoGame() in SeriousSam.cpp
+      This actually has multiple different matches, but they'll all give us the right pointer
+    */
+   if (version == "Revolution") {
+        ptr = exeScanner.Scan(new SigScanTarget(14,
+            "83 C4 04",                 // add esp,04
+            "83 3D ???????? 00",        // cmp dword ptr [SeriousSam.exe+8AC54],00
+            "74 ??",                    // je SeriousSam.exe+5D173
+            "8B 0D ????????",           // mov ecx,[SeriousSam.exe+9BA20]   <--- _pGame
+            "8B 01"                     // mov eax,[ecx]
+        ));
+   } else {
+        // Yes the registers are literally the only difference
+        ptr = exeScanner.Scan(new SigScanTarget(13,
+            "83 C4 04",                 // add esp,04
+            "83 3D ???????? 00",        // cmp dword ptr [SeriousSam.exe+9896C],00
+            "74 ??",                    // je SeriousSam.exe+346FC
+            "A1 ????????",              // mov eax,[SeriousSam.exe+98D4C]   <--- _pGame
+            "8B 10"                     // mov edx,[eax]
+        ));
+   }
+    if (ptr == IntPtr.Zero) {
+        print("Could not find pointer to _pGame.gm_csComputerState!");
+        version = "Error";
+        return false;
+    }
+    vars.computerState = new MemoryWatcher<int>(new DeepPointer(
+        game.ReadValue<int>(ptr) - (int)exe.BaseAddress,
+        (version == "Revolution") ? 0xC : 0x8
+    ));
+    
+    vars.allPointers.Add(vars.computerState);
+    
+    /*
+      This matches part of a conditional in the static method StartMenus() in Menu.cpp as follows:
         `pgmCurrentMenu == &_pGUIM->gmMainMenu`
       As it happens this is the exact check we want to replicate to check resets, so we can
        extract both addresses at once
@@ -111,7 +148,6 @@ init {
         vars.mainMenu = game.ReadValue<int>(ptr + 4);
     // TODO: TSE GOG is untested
     } else if (version == "TFE-GOG" || version == "TSE-GOG") {
-        print("Couldn't find menu pointer, testing for GOG version");
         ptr = exeScanner.Scan(new SigScanTarget(1,
             "a1 ????????",              // mov eax, ds:0x442c2c             <--- pgmCurrentMenu
             "8b 0d ????????",           // mov ecx, DWORD PTR ds:0x442bf4
@@ -217,27 +253,32 @@ update {
 }
 
 start {
-    /*
-      This pointer is undefined until the game starts, so it'll return 0
-      It is set to 0 by default so even then it won't quite return, but as soon as the player entity
-       is initialized it's set to 1, and that'll happen soon enough that it's fine for this
-    */
-    return vars.playerFlags.Current != 0 &&  vars.playerFlags.Old == 0;
+    if ((version == "Revolution" && !settings["start_no_auto"]) || settings["start_level"]) {
+        /*
+          This pointer is undefined until the game starts, so it'll return 0
+          It is set to 0 by default so even then it won't quite return, but as soon as the player
+           entity is initialized it's set to 1, and that'll happen soon enough that it's fine to use
+        */
+        return vars.playerFlags.Current != 0 && vars.playerFlags.Old == 0;
+    } else if ((version != "Revolution" && !settings["start_no_auto"]) || settings["start_netricsa"]) {
+        // This pointer however is always active, check if it goes from CS_TURNINGOFF to CS_OFF
+        return vars.computerState.Current == 0 && vars.computerState.Old == 3;
+    }
 }
 
 split {
     // Checking PLF_CHANGINGLEVEL - won't trigger on loading saves
     if ((vars.playerFlags.Current & 0x40 ) != 0 && (vars.playerFlags.Old & 0x40) == 0) {
-        return settings["Split on finishing level"];
+        return settings["split_level"];
     }
     // Workaround for the last level in a campaign, which just ends on the stats screen.
     if (vars.gameFinished.Current == 1 && vars.gameFinished.Old == 0) {
-        return settings["Split on finishing level"];
+        return settings["split_level"];
     }
 
     // TODO: Player 1 uses +4 +4, Player 2 uses +4 +8C, Player 3 uses +4 +114, etc, 0x88 increments
     if (vars.secretCount.Current > vars.secretCount.Old) {
-        return settings["Split on collecting secrets (host only)"];
+        return settings["split_secret"];
     }
 }
 
