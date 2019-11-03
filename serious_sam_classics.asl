@@ -94,16 +94,7 @@ init {
       Find _pGame.gm_csComputerState through DoGame() in SeriousSam.cpp
       This actually has multiple different matches, but they'll all give us the right pointer
     */
-   if (version == "Revolution") {
-        ptr = exeScanner.Scan(new SigScanTarget(14,
-            "83 C4 04",                 // add esp,04
-            "83 3D ???????? 00",        // cmp dword ptr [SeriousSam.exe+8AC54],00
-            "74 ??",                    // je SeriousSam.exe+5D173
-            "8B 0D ????????",           // mov ecx,[SeriousSam.exe+9BA20]   <--- _pGame
-            "8B 01"                     // mov eax,[ecx]
-        ));
-   } else {
-        // Yes the registers are literally the only difference
+    if (version == "TFE" || version == "TSE") {
         ptr = exeScanner.Scan(new SigScanTarget(13,
             "83 C4 04",                 // add esp,04
             "83 3D ???????? 00",        // cmp dword ptr [SeriousSam.exe+9896C],00
@@ -111,7 +102,24 @@ init {
             "A1 ????????",              // mov eax,[SeriousSam.exe+98D4C]   <--- _pGame
             "8B 10"                     // mov edx,[eax]
         ));
-   }
+    // TODO: TSE GOG is untested
+    } else if (version == "TFE-GOG" || version == "TSE-GOG") {
+        ptr = exeScanner.Scan(new SigScanTarget(17,
+            "83 c4 04",                 // add esp,0x4
+            "39 1d ????????",           // cmp DWORD PTR ds:0x442bf4,ebx
+            "0f 84 ????????",           // je 0x4d85
+            "8b 0d ????????",           // mov ecx,DWORD PTR ds:0x442fc4    <--- _pGame
+            "8b 11"                     // mov edx,DWORD PTR [ecx]
+        ));
+    } else if (version == "Revolution") {
+        ptr = exeScanner.Scan(new SigScanTarget(14,
+            "83 C4 04",                 // add esp,04
+            "83 3D ???????? 00",        // cmp dword ptr [SeriousSam.exe+8AC54],00
+            "74 ??",                    // je SeriousSam.exe+5D173
+            "8B 0D ????????",           // mov ecx,[SeriousSam.exe+9BA20]   <--- _pGame
+            "8B 01"                     // mov eax,[ecx]
+        ));
+    }
     if (ptr == IntPtr.Zero) {
         print("Could not find pointer to _pGame.gm_csComputerState!");
         version = "Error";
