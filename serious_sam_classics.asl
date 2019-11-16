@@ -91,7 +91,7 @@ init {
     // Find all the pointers we need
     
     /*
-      Find _pGame.gm_csComputerState through DoGame() in SeriousSam.cpp
+      Find _pGame through DoGame() in SeriousSam.cpp
       This actually has multiple different matches, but they'll all give us the right pointer
     */
     if (version == "TFE" || version == "TSE") {
@@ -121,16 +121,43 @@ init {
         ));
     }
     if (ptr == IntPtr.Zero) {
-        print("Could not find pointer to _pGame.gm_csComputerState!");
+        print("Could not find pointer to _pGame");
         version = "Error";
         return false;
     }
+    var _pGame = game.ReadValue<int>(ptr) - (int)exe.BaseAddress;
+    // CGame.gm_csComputerState - used to detect exiting netricsa
     vars.computerState = new MemoryWatcher<int>(new DeepPointer(
-        game.ReadValue<int>(ptr) - (int)exe.BaseAddress,
-        (version == "Revolution") ? 0xC : 0x8
+        _pGame, (version == "Revolution") ? 0xC : 0x8
+    ));
+    // CGame.gm_bGameOn - used to detect quickloads
+    vars.gameOn = new MemoryWatcher<int>(new DeepPointer(
+        // TODO: TFE/TSE
+        _pGame, 0xEC0
     ));
     
     vars.allPointers.Add(vars.computerState);
+    vars.allPointers.Add(vars.gameOn);
+    
+    /*
+      Finding _bReinitEntitiesWhileCopying through Engine.CNetworkLibrary::ChangeLevel_internal
+      This gets set to 0 while changing levels
+      
+      TODO: TFE/TSE
+    */
+    ptr = engineScanner.Scan(new SigScanTarget(2,
+        "C7 05 ???????? 01000000",      // mov [Engine._eeVoid+18],00000001
+        "83 BB ???????? 00"             // cmp dword ptr [ebx+000009A0],00
+    ));
+    if (ptr == IntPtr.Zero) {
+        print("Could not find pointer to _bReinitEntitiesWhileCopying!");
+        version = "Error";
+        return false;
+    }
+    vars.reinitEntites = new MemoryWatcher<int>(new DeepPointer(
+        game.ReadValue<int>(ptr) - (int)exe.BaseAddress
+    ));
+    vars.allPointers.Add(vars.reinitEntites);
     
     /*
       This matches part of a conditional in the static method StartMenus() in Menu.cpp as follows:
@@ -176,34 +203,6 @@ init {
     vars.allPointers.Add(vars.currentMenu);
 
     /*
-      Finding CSoundLibrary._bMuted through Engine.SoundLibrary::Mute
-      While it sounds iffy, you can search through to source to find out that in practice this only
-       ever mutes loading screens, if you set your volume to 0 it will still be false.
-    */
-    if (version == "Revolution") {
-        ptr = engineScanner.Scan(new SigScanTarget(5,
-            "FF 77 40",                 // push [edi+40]
-            "C7 05 ???????? 01000000"   // mov [Engine._pSound+1C],00000001
-            // push edi
-        ));
-    } else {
-        ptr = engineScanner.Scan(new SigScanTarget(2,
-            // call Engine.CTSingleLock::CTSingleLock
-            "C7 05 ???????? 01000000",  // mov [Engine._pSound+1C],00000001
-            "8B 46 1C"                  // mov eax,[esi+1C]
-        ));
-    }
-    if (ptr == IntPtr.Zero) {
-        print("Could not find pointer to CSoundLibrary._bMuted!");
-        version = "Error";
-        return false;
-    }
-    vars.isMuted = new MemoryWatcher<int>(new DeepPointer(
-        game.ReadValue<int>(ptr) - (int)exe.BaseAddress
-    ));
-    vars.allPointers.Add(vars.isMuted);
-
-    /*
       Finding Engine._pNetwork through Engine.CSoundLibrary::MixSounds
       In Revolution this has another match in Engine.CWorld::CreateEntity, but it just changes the
        function call, it still gets us the right pointer
@@ -245,6 +244,7 @@ init {
     vars.secretCount = new MemoryWatcher<int>(new DeepPointer(
         _pNetwork, 0x20, 0x4, 0x4, secretOffset
     ));
+    
     vars.allPointers.Add(vars.gameFinished);
     vars.allPointers.Add(vars.playerFlags);
     vars.allPointers.Add(vars.secretCount);
@@ -296,5 +296,5 @@ reset {
 }
 
 isLoading {
-    return vars.isMuted.Current == 1;
+    return vars.reinitEntites.Current == 0 || vars.gameOn.Current == 0; 
 }
