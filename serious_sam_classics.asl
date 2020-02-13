@@ -2,7 +2,7 @@
   Serious Engine 1 has public source code, and some parts of the game ship with symbols, both of
    which help a lot when working on this.
   https://github.com/Croteam-official/Serious-Engine
-  
+
   Despite this, the three games, and the gog versions, all use slightly different code (all
    different from the source too), which does mean some of the pointer offsets and sigscans need to
    change between them, but once we've found the pointers everything works the same
@@ -11,7 +11,7 @@
 state("SeriousSam") {}
 
 startup {
-    settings.Add("start_no_auto", false, "Don't guess start trigger based off of version");
+    settings.Add("start_no_auto", false, "Don't guess start trigger");
     settings.Add("start_level", false, "Start on level load", "start_no_auto");
     settings.Add("start_netricsa", false, "Start on exiting Netricsa", "start_no_auto");
     settings.Add("split_level", true, "Split on finishing level");
@@ -20,15 +20,15 @@ startup {
 
 init {
     vars.foundPointers = false;
-    
+
     var exe = modules.First();
     var engine = modules.Where(m => m.ModuleName == "Engine.dll").First();
-    
+
     var exeScanner = new SignatureScanner(game, exe.BaseAddress, exe.ModuleMemorySize);
     var engineScanner = new SignatureScanner(game, engine.BaseAddress, engine.ModuleMemorySize);
     vars.allPointers = new List<MemoryWatcher>();
     var ptr = IntPtr.Zero;
-    
+
     /*
       Try extract the version information to work out the game
       TFE and TSE use a major and minor version that's just a define, Rev uses a string
@@ -43,7 +43,7 @@ init {
     if (ptr != IntPtr.Zero) {
         byte minor = game.ReadValue<byte>(ptr);
         int major = game.ReadValue<int>(IntPtr.Add(ptr, 2));
-        
+
         if (major == 10000 && minor == 5) {
             version = "TFE";
         } else if (major == 10000 && minor == 7) {
@@ -53,7 +53,7 @@ init {
             version = "Unknown";
             return false;
         }
-        
+
         /*
           The steam version ships with some 64-bit exes that GOG doesn't have (and renames the
            32-bit ones), which we can use to tell them apart.
@@ -74,7 +74,7 @@ init {
             version = "Error";
             return false;
         }
-        
+
         IntPtr versionPtr = new IntPtr(game.ReadValue<int>(new IntPtr(game.ReadValue<int>(ptr))));
         // Technically this is a string, but we'll just check the first few bytes ("AP_3") as an int
         int firstValue = game.ReadValue<int>(versionPtr);
@@ -87,9 +87,9 @@ init {
             return false;
         }
     }
-    
+
     // Find all the pointers we need
-    
+
     /*
       Find _pGame.gm_csComputerState through DoGame() in SeriousSam.cpp
       This actually has multiple different matches, but they'll all give us the right pointer
@@ -129,9 +129,9 @@ init {
         game.ReadValue<int>(ptr) - (int)exe.BaseAddress,
         (version == "Revolution") ? 0xC : 0x8
     ));
-    
+
     vars.allPointers.Add(vars.computerState);
-    
+
     /*
       This matches part of a conditional in the static method StartMenus() in Menu.cpp as follows:
         `pgmCurrentMenu == &_pGUIM->gmMainMenu`
@@ -172,7 +172,7 @@ init {
     vars.currentMenu = new MemoryWatcher<int>(new DeepPointer(
         game.ReadValue<int>(ptr) - (int)exe.BaseAddress
     ));
-    
+
     vars.allPointers.Add(vars.currentMenu);
 
     /*
@@ -232,7 +232,11 @@ init {
     vars.playerFlags =  new MemoryWatcher<int>(new DeepPointer(
         _pNetwork, 0x20, 0x4, 0x4, (version == "Revolution") ? 0x3DC : 0x380
     ));
-    
+    // TODO: Untested on GOG versions, I'd be suprised if it fails though
+    vars.isSinglePlayer =  new MemoryWatcher<int>(new DeepPointer(
+        _pNetwork, (version == "Revolution") ? 0x9D8 : 0x97C
+    ));
+
     var secretOffset = 0;
     switch (version) {
         case "TFE":
@@ -247,8 +251,9 @@ init {
     ));
     vars.allPointers.Add(vars.gameFinished);
     vars.allPointers.Add(vars.playerFlags);
+    vars.allPointers.Add(vars.isSinglePlayer);
     vars.allPointers.Add(vars.secretCount);
-    
+
     vars.foundPointers = true;
 }
 
@@ -261,14 +266,29 @@ update {
 }
 
 start {
-    if ((version == "Revolution" && !settings["start_no_auto"]) || settings["start_level"]) {
+    bool useLevel = false;
+    bool useNetricsa = false;
+    if (settings["start_no_auto"]) {
+        useLevel = settings["start_level"];
+        useNetricsa = settings["start_netricsa"];
+    } else {
+        // If in coop use level transitions, otherwise use netricsa
+        if (vars.isSinglePlayer.Current == 0) {
+            useLevel = true;
+        } else {
+            useNetricsa = true;
+        }
+    }
+
+    if (useLevel) {
         /*
           This pointer is undefined until the game starts, so it'll return 0
           It is set to 0 by default so even then it won't quite return, but as soon as the player
-           entity is initialized it's set to 1, and that'll happen soon enough that it's fine to use
+           entity is initialized it's set to 1
+          Conveniently, with wait for all players on, this doesn't happen until everyone's connected
         */
         return vars.playerFlags.Current != 0 && vars.playerFlags.Old == 0;
-    } else if ((version != "Revolution" && !settings["start_no_auto"]) || settings["start_netricsa"]) {
+    } else if (useNetricsa) {
         // This pointer however is always active, check if it goes from CS_TURNINGOFF to CS_OFF
         return vars.computerState.Current == 0 && vars.computerState.Old == 3;
     }
