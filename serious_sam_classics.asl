@@ -8,6 +8,7 @@
    change between them, but once we've found the pointers everything works the same
 */
 
+state("DedicatedServer") {}
 state("SeriousSam") {}
 
 startup {
@@ -20,6 +21,7 @@ startup {
 
 init {
     vars.foundPointers = false;
+    vars.isDedicated = game.ProcessName == "DedicatedServer";
 
     var exe = modules.First();
     var engine = modules.Where(m => m.ModuleName == "Engine.dll").First();
@@ -120,17 +122,17 @@ init {
             "8B 01"                     // mov eax,[ecx]
         ));
     }
-    if (ptr == IntPtr.Zero) {
+    if (ptr == IntPtr.Zero && !vars.isDedicated) {
         print("Could not find pointer to _pGame.gm_csComputerState!");
         version = "Error";
         return false;
+    } else {
+        vars.computerState = new MemoryWatcher<int>(new DeepPointer(
+            game.ReadValue<int>(ptr) - (int)exe.BaseAddress,
+            (version == "Revolution") ? 0xC : 0x8
+        ));
+        vars.allPointers.Add(vars.computerState);
     }
-    vars.computerState = new MemoryWatcher<int>(new DeepPointer(
-        game.ReadValue<int>(ptr) - (int)exe.BaseAddress,
-        (version == "Revolution") ? 0xC : 0x8
-    ));
-
-    vars.allPointers.Add(vars.computerState);
 
     /*
       This matches part of a conditional in the static method StartMenus() in Menu.cpp as follows:
@@ -164,16 +166,17 @@ init {
         ));
         vars.mainMenu = game.ReadValue<int>(ptr + 14);
     }
-    if (ptr == IntPtr.Zero) {
+    if (ptr == IntPtr.Zero && !vars.isDedicated) {
         print("Could not find menu pointers!");
         version = "Error";
         return false;
+    } else {
+        vars.currentMenu = new MemoryWatcher<int>(new DeepPointer(
+            game.ReadValue<int>(ptr) - (int)exe.BaseAddress
+        ));
+        vars.allPointers.Add(vars.currentMenu);
     }
-    vars.currentMenu = new MemoryWatcher<int>(new DeepPointer(
-        game.ReadValue<int>(ptr) - (int)exe.BaseAddress
-    ));
 
-    vars.allPointers.Add(vars.currentMenu);
 
     /*
       Finding CSoundLibrary._bMuted through Engine.SoundLibrary::Mute
@@ -255,6 +258,10 @@ init {
     vars.allPointers.Add(vars.secretCount);
 
     vars.foundPointers = true;
+
+    if (vars.isDedicated) {
+        version = "Dedicated " + version;
+    }
 }
 
 update {
@@ -270,7 +277,7 @@ start {
     bool useNetricsa = false;
     if (settings["start_no_auto"]) {
         useLevel = settings["start_level"];
-        useNetricsa = settings["start_netricsa"];
+        useNetricsa = settings["start_netricsa"] && !vars.isDedicated;
     } else {
         // If in coop use level transitions, otherwise use netricsa
         if (vars.isSinglePlayer.Current == 0) {
@@ -311,6 +318,9 @@ split {
 }
 
 reset {
+    if (vars.isDedicated) {
+        return false;
+    }
     // Reset if you switch to the main menu - won't catch reloading a save but ehh
     return vars.currentMenu.Current == vars.mainMenu && vars.currentMenu.Old != vars.mainMenu;
 }
