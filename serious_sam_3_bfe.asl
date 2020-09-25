@@ -131,8 +131,7 @@ update {
              || vars.line.StartsWith("OpenGL: API error!"));
 }
 
-isLoading
-{
+isLoading {
     if (vars.line != null) {
         if (vars.onContinueScreen &&
             vars.line.StartsWith("resFreeUnused")) {
