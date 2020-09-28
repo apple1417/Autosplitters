@@ -10,8 +10,8 @@ startup {
 
 init {
     vars.currentWorld = "";
-    vars.onContinueScreen = false;
-    vars.isLoading = null;
+    vars.isLoading1 = null;
+    vars.isLoading2 = null;
     vars.cheats = null;
 
     var page = modules.First();
@@ -35,8 +35,26 @@ init {
         print("Could not find loading pointer!");
     } else {
         var relPos = (int)((long)ptr - (long)page.BaseAddress) + 4;
-        vars.isLoading = new MemoryWatcher<int>(new DeepPointer(
+        vars.isLoading1 = new MemoryWatcher<int>(new DeepPointer(
             game.ReadValue<int>(ptr) + relPos, 0x10, 0x208
+        ));
+    }
+
+    ptr = scanner.Scan(new SigScanTarget(20,
+        "48 8B D8",             // mov rbx,rax
+        "48 85 C0",             // test rax,rax
+        "74 3F",                // je Sam4.exe+8864C4
+        "4C 8B 00",             // mov r8,[rax]
+        "48 8B C8",             // mov rcx,rax
+        "41 FF 10",             // call qword ptr [r8]
+        "48 8B 15 ????????"     // mov rdx,[Sam4.exe+22606F0] { (085E8A40) }       <----
+    ));
+    if (ptr == IntPtr.Zero) {
+        print("Could not find cheats pointer!");
+    } else {
+        var relPos = (int)((long)ptr - (long)page.BaseAddress) + 4;
+        vars.isLoading2 = new MemoryWatcher<int>(new DeepPointer(
+            game.ReadValue<int>(ptr) + relPos, 0x50
         ));
     }
 
@@ -73,6 +91,12 @@ update {
         }
     }
 
+    if (vars.isLoading1 != null) {
+        vars.isLoading1.Update(game);
+    }
+    if (vars.isLoading2 != null) {
+        vars.isLoading2.Update(game);
+    }
     if (vars.cheats != null) {
         vars.cheats.Update(game);
     }
@@ -98,7 +122,6 @@ start {
             print("Started a new run");
 
             vars.currentWorld = world;
-            vars.onContinueScreen = true;
             timer.IsGameTimePaused = true;
             return true;
         }
@@ -106,19 +129,8 @@ start {
 }
 
 isLoading {
-    if (vars.line != null) {
-        if (vars.onContinueScreen && vars.line.EndsWith("sound channels reinitialized.")) {
-            vars.onContinueScreen = false;
-        }
-
-        if (vars.line.StartsWith("Started loading world")
-            && !vars.line.Contains("Content/SeriousSam4/Levels/Menu/")) {
-
-            print("Continue screen trigger: " + vars.line);
-            vars.onContinueScreen = true;
-        }
-    }
-    return vars.onContinueScreen || (vars.isLoading != null && vars.isLoading.Current != 0);
+    return (vars.isLoading1 != null && vars.isLoading1.Current != 0)
+            || (vars.isLoading2 != null && vars.isLoading2.Current != 0);
 }
 
 split {
