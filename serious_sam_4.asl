@@ -4,14 +4,16 @@ startup {
     settings.Add("no_cheats", true, "Don't start the run if cheats are active");
     settings.Add("level_transitions", true, "Split on level transitions");
     settings.Add("start_everywhere", false, "Start the run in any world");
+    settings.Add("il_mode", false, "IL Mode (Experimental)");
 
     vars.reader = null;
 }
 
 init {
     vars.currentWorld = "";
-    vars.isLoading1 = null;
-    vars.isLoading2 = null;
+    vars.isLoadingMain = null;
+    vars.isLoadingSecondary = null;
+    vars.igt = null;
     vars.cheats = null;
 
     var page = modules.First();
@@ -32,10 +34,10 @@ init {
         "FF 92 B0000000"        // call qword ptr [rdx+000000B0]
     ));
     if (ptr == IntPtr.Zero) {
-        print("Could not find loading pointer!");
+        print("Could not find main loading pointer!");
     } else {
         var relPos = (int)((long)ptr - (long)page.BaseAddress) + 4;
-        vars.isLoading1 = new MemoryWatcher<int>(new DeepPointer(
+        vars.isLoadingMain = new MemoryWatcher<int>(new DeepPointer(
             game.ReadValue<int>(ptr) + relPos, 0x10, 0x208
         ));
     }
@@ -50,11 +52,25 @@ init {
         "48 8B 15 ????????"     // mov rdx,[Sam4.exe+22606F0] { (085E8A40) }       <----
     ));
     if (ptr == IntPtr.Zero) {
-        print("Could not find cheats pointer!");
+        print("Could not find secondary loading pointer!");
     } else {
         var relPos = (int)((long)ptr - (long)page.BaseAddress) + 4;
-        vars.isLoading2 = new MemoryWatcher<int>(new DeepPointer(
+        vars.isLoadingSecondary = new MemoryWatcher<int>(new DeepPointer(
             game.ReadValue<int>(ptr) + relPos, 0x50
+        ));
+    }
+
+    ptr = scanner.Scan(new SigScanTarget(11,
+        "FF 90 68020000",       // call qword ptr [rax+00000268]
+        "EB 41",                // jmp Sam4.exe+3AD30
+        "48 8B 0D ????????"     // mov rcx,[Sam4.exe+2244138]       <----
+    ));
+    if (ptr == IntPtr.Zero) {
+        print("Could not find igt pointer!");
+    } else {
+        var relPos = (int)((long)ptr - (long)page.BaseAddress) + 4;
+        vars.igt = new MemoryWatcher<int>(new DeepPointer(
+            game.ReadValue<int>(ptr) + relPos, 0x10, 0x238, 0x1d8, 0x170, 0x10
         ));
     }
 
@@ -91,11 +107,14 @@ update {
         }
     }
 
-    if (vars.isLoading1 != null) {
-        vars.isLoading1.Update(game);
+    if (vars.isLoadingMain != null) {
+        vars.isLoadingMain.Update(game);
     }
-    if (vars.isLoading2 != null) {
-        vars.isLoading2.Update(game);
+    if (vars.isLoadingSecondary != null) {
+        vars.isLoadingSecondary.Update(game);
+    }
+    if (vars.igt != null) {
+        vars.igt.Update(game);
     }
     if (vars.cheats != null) {
         vars.cheats.Update(game);
@@ -129,12 +148,21 @@ start {
 }
 
 isLoading {
-    return (vars.isLoading1 != null && vars.isLoading1.Current != 0)
-            || (vars.isLoading2 != null && vars.isLoading2.Current != 0);
+    if (settings["il_mode"]) {
+        return true;
+    }
+    return (vars.isLoadingMain != null && vars.isLoadingMain.Current != 0)
+            || (vars.isLoadingSecondary != null && vars.isLoadingSecondary.Current != 0);
+}
+
+gameTime {
+    if (settings["il_mode"] && vars.igt != null) {
+        return new TimeSpan(0, 0, vars.igt.Current);
+    }
 }
 
 split {
-    if (vars.line == null) {
+    if (vars.line == null || settings["il_mode"]) {
         return false;
     }
 

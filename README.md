@@ -5,10 +5,15 @@ Most of these use sigscans meaning they should work across multiple versions of 
 These don't all necessarily do autosplitting or load removal however, livesplit is just a nice tool to quickly do some memory reading with.
 
 ##### serious_sam_3_bfe.asl
-- Starts upon loading any level
-- Removes loading screens, including "Continue" screen when the map has loaded
+- Starts upon loading the starting levels
+- Removes loading screens, including the continue screen when the map has loaded
 - Splits for world transitions
 - Ending splits for defeating the final boss in both the main and dlc campaigns
+
+##### serious_sam_4_bfe.asl
+- Starts upon loading the first level
+- Removes loading screens, including the continue screen when the map has loaded
+- Splits for world transitions
 
 ##### serious_sam_classics.asl
 Works for Serious Sam TFE, TSE, and Revolution
