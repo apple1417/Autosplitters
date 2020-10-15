@@ -5,6 +5,8 @@ startup {
     settings.Add("level_transitions", true, "Split on level transitions");
     settings.Add("start_everywhere", false, "Start the run in any world");
     settings.Add("il_mode", false, "IL Mode (Experimental)");
+    settings.Add("il_start", false, "Start 1.00s after IL start", "il_mode");
+    settings.Add("il_resets", false, "Reset on reloading level", "il_mode");
 
     vars.reader = null;
 }
@@ -60,17 +62,17 @@ init {
         ));
     }
 
-    ptr = scanner.Scan(new SigScanTarget(11,
-        "FF 90 68020000",       // call qword ptr [rax+00000268]
-        "EB 41",                // jmp Sam4.exe+3AD30
-        "48 8B 0D ????????"     // mov rcx,[Sam4.exe+2244138]       <----
+    ptr = scanner.Scan(new SigScanTarget(12,
+        "FF 92 80000000",       // call qword ptr [rdx+00000080]
+        "44 8B E0",             // mov r12d,eax
+        "48 8B 0D ????????"     // mov rcx,[Sam4.exe+2242138]       <----
     ));
     if (ptr == IntPtr.Zero) {
         print("Could not find igt pointer!");
     } else {
         var relPos = (int)((long)ptr - (long)page.BaseAddress) + 4;
         vars.igt = new MemoryWatcher<int>(new DeepPointer(
-            game.ReadValue<int>(ptr) + relPos, 0x10, 0x238, 0x1d8, 0x170, 0x10
+            game.ReadValue<int>(ptr) + relPos, 0x10, 0x238, 0x1e0, 0x68
         ));
     }
 
@@ -96,12 +98,12 @@ exit {
     vars.reader = null;
 }
 
-
 update {
     if (vars.reader != null) {
         do {
             vars.line = vars.reader.ReadLine();
         } while (vars.line != null && vars.line.Length <= 16);
+
         if (vars.line != null) {
             vars.line = vars.line.Substring(16).Trim();
         }
@@ -122,7 +124,13 @@ update {
 }
 
 start {
-    if (vars.line == null) return false;
+    if (settings["il_start"]) {
+        return vars.igt != null && vars.igt.Old == 0 && vars.igt.Current == 1;
+    }
+
+    if (vars.line == null) {
+        return false;
+    }
 
     var match = new System.Text.RegularExpressions.Regex(@"^Started simulation on '(.*?)'").Match(vars.line);
     if (match.Success) {
@@ -148,21 +156,12 @@ start {
 }
 
 isLoading {
-    if (settings["il_mode"]) {
-        return true;
-    }
     return (vars.isLoadingMain != null && vars.isLoadingMain.Current != 0)
             || (vars.isLoadingSecondary != null && vars.isLoadingSecondary.Current != 0);
 }
 
-gameTime {
-    if (settings["il_mode"] && vars.igt != null) {
-        return new TimeSpan(0, 0, vars.igt.Current);
-    }
-}
-
 split {
-    if (vars.line == null || settings["il_mode"]) {
+    if (vars.line == null) {
         return false;
     }
 
@@ -176,5 +175,11 @@ split {
         print("Changed worlds from " + vars.currentWorld + " to " + world);
         vars.currentWorld = world;
         return settings["level_transitions"];
+    }
+}
+
+reset {
+    if (settings["il_resets"]) {
+        return vars.igt != null && vars.igt.Old != 0 && vars.igt.Current == 0;
     }
 }
