@@ -44,4 +44,4 @@ Works for Serious Sam TFE, TSE, and Revolution
 
 ##### talos_speed.asl
 - Overwrites your first 5 text components with your player speed
-- Made for version 326589, 32-bit unmodded, probably breaks everywhere else
+- Only works on 326/32/unmodded and 440/64/modded - couldn't be bothered to write up sigscans :)

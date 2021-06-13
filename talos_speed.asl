@@ -4,6 +4,12 @@ state("Talos") {
     float z: 0x12BBBC0, 0, 0x78;
 }
 
+state("Talos_Unrestricted") {
+    float x: 0x01E9E750, 0, 0x94;
+    float y: 0x01E9E750, 0, 0x98;
+    float z: 0x01E9E750, 0, 0x9C;
+}
+
 startup {
     vars.tcsX = null;
     vars.tcsY = null;
