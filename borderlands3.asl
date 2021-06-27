@@ -1,19 +1,36 @@
 state("Borderlands3") {}
 
 startup {
+    settings.Add("start_echo", true, "Start the run when picking up Claptrap's echo");
+    settings.Add("start_sancturary", false, "Start the run when entering Sanctuary");
     settings.Add("split_levels", false, "Split on level transitions");
-    settings.Add("start_sancturary", false, "Start the run when entering Sanctuary (for DLCs)");
+    settings.Add("split_tyreen", true, "Split on Main Campaign ending cutscene");
+    settings.Add("split_jackpot", true, "Split on Jackpot DLC ending cutscene");
+    settings.Add("split_wedding", true, "Split on Wedding DLC ending cutscene");
+    settings.Add("split_bounty", true, "Split on Bounty DLC ending cutscene");
+    settings.Add("split_krieg", true, "Split on Krieg DLC ending cutscene");
     settings.Add("count_sqs", false, "Count SQs in \"SQs:\" counter component");
 
     vars.loadFromGNames = null;
 
+    vars.localPlayer = null;
+
     vars.worldPtr = null;
     vars.isLoading = null;
+    vars.playthrough = null;
+    vars.missionCount = null;
+    vars.startingEchoObjective = null;
 
     vars.currentWorld = null;
     vars.oldWorld = null;
 
     vars.lastGameWorld = null;
+
+    vars.justLoadedMissions = false;
+    vars.delayedSplitTime = TimeSpan.Zero;
+    vars.cutsceneWatchers = new Dictionary<string, MemoryWatcher<int>>();
+
+    timer.OnStart += (e, o) => { vars.delayedSplitTime = TimeSpan.Zero; };
 
     vars.incrementCounter = null;
 
@@ -100,9 +117,11 @@ init {
     ));
     if (ptr == IntPtr.Zero) {
         print("Could not find GNames pointer!");
+        vars.loadFromGNames = null;
     } else {
-        var relPos = (int)((long)ptr - (long)page.BaseAddress) + 4;
-        var GNames = game.ReadValue<int>(ptr) + relPos;
+        var GNames = (int)(
+            game.ReadValue<int>(ptr) + ptr.ToInt64() - page.BaseAddress.ToInt64() + 4
+        );
 
         vars.loadFromGNames = (Func<int, string>)((idx) => {
             var namePtr = new DeepPointer(GNames, (idx / 0x4000) * 8, (idx % 0x4000) * 8, 0x10);
@@ -119,6 +138,7 @@ init {
     ));
     if (ptr == IntPtr.Zero) {
         print("Could not find current world pointer!");
+        vars.worldPtr = null;
     } else {
         var relPos = (int)(ptr.ToInt64() - page.BaseAddress.ToInt64() + 4);
         vars.worldPtr = new MemoryWatcher<int>(new DeepPointer(
@@ -148,13 +168,44 @@ init {
     }
     if (vars.isLoading == null) {
         print("Could not find loading pointer!");
+        vars.isLoading = null;
     }
+
+    ptr = scanner.Scan(new SigScanTarget(31,
+        "88 1D ????????",       // mov [Borderlands3.exe+6A5A794],bl { (0) }
+        "E8 ????????",          // call Borderlands3.exe+3DB17A4
+        "48 8D 0D ????????",    // lea rcx,[Borderlands3.exe+6A5A798] { (-2147481615) }
+        "E8 ????????",          // call Borderlands3.exe+3DB1974
+        "48 8B 5C 24 20",       // mov rbx,[rsp+20]
+        "48 8D 05 ????????",    // lea rax,[Borderlands3.exe+6A5A6A0] { (0) }   <----
+        "48 83 C4 28",          // add rsp,28 { 40 }
+        "C3"                    // ret
+    ));
+    if (ptr == IntPtr.Zero) {
+        print("Could not find local player pointer!");
+        vars.localPlayer = null;
+        vars.playthrough = null;
+    } else {
+        vars.localPlayer = (int)(
+            game.ReadValue<int>(ptr) + ptr.ToInt64() - page.BaseAddress.ToInt64() + 0xD4
+        );
+        // Playthroughs is the only constant pointer, the rest depend on playthough and the order
+        //  you grabbed missions in
+        vars.playthrough = new MemoryWatcher<int>(new DeepPointer(
+            vars.localPlayer, 0x30, 0xC60, 0x1E0
+        ));
+        vars.justLoadedMissions = true;
+    }
+    // These get set in update
+    vars.missionCount = null;
+    vars.startingEchoObjective = null;
 
     if (
         version != "Unknown" && (
             vars.loadFromGNames == null
             || vars.worldPtr == null
             || vars.isLoading == null
+            || vars.playthrough == null
         )
     ) {
         version = "Unstable " + version;
@@ -204,12 +255,99 @@ update {
             );
         }
     }
+
+    if (vars.justLoadedMissions) {
+        vars.justLoadedMissions = false;
+    }
+    if (vars.playthrough != null) {
+        var playthroughChanged = vars.playthrough.Update(game);
+        var missionsChanged = false;
+
+        // If playthrough changes we need to update the mission counter pointer
+        if (vars.missionCount == null || (playthroughChanged && vars.playthrough.Current >= 0)) {
+            var playthrough = vars.playthrough.Current >= 0 ? vars.playthrough.Current : 0;
+            vars.missionCount = new MemoryWatcher<int>(new DeepPointer(
+                vars.localPlayer, 0x30, 0xC60, 0x188, 0x18 * playthrough + 0x8
+            ));
+            missionsChanged = true;
+        }
+
+        missionsChanged |= vars.missionCount.Update(game);
+
+        // If the missions pointer/count changes we might have new missions
+        if (missionsChanged) {
+            print("Missions changed");
+            vars.startingEchoObjective = null;
+            vars.cutsceneWatchers.Clear();
+
+            var CUTSCENE_MISSIONS = new Dictionary<string, string>() {
+                { "Mission_Ep23_TyreenFinalBoss_C", "split_tyreen" },
+                { "Mission_DLC1_Ep07_TheHeist_C", "split_jackpot" },
+                { "EP06_DLC2_C", "split_wedding" },
+                { "Mission_Ep05_Crater_C", "split_bounty" },
+                { "ALI_EP05_C", "split_krieg" }
+            };
+
+            for (var idx = 0; idx < vars.missionCount.Current; idx++) {
+                var missionName = vars.loadFromGNames(
+                    new DeepPointer(
+                        vars.localPlayer,
+                        0x30, 0xC60, 0x188,
+                        0x18 * vars.playthrough.Current,
+                        0x30 * idx,
+                        0x18
+                    ).Deref<int>(game)
+                );
+
+                if (missionName == "Mission_Ep01_ChildrenOfTheVault_C") {
+                    vars.startingEchoObjective = new MemoryWatcher<int>(
+                        new DeepPointer(
+                            vars.localPlayer,
+                            0x30, 0xC60, 0x188,
+                            0x18 * vars.playthrough.Current,
+                            // Watch the 5th objective (index 4/offset 0x10) specifically
+                            0x30 * idx + 0x10,
+                            0x10
+                        )
+                    );
+                } else if (CUTSCENE_MISSIONS.ContainsKey(missionName)) {
+                    vars.cutsceneWatchers[CUTSCENE_MISSIONS[missionName]] = new MemoryWatcher<int>(
+                        new DeepPointer(
+                            vars.localPlayer,
+                            0x30, 0xC60, 0x188,
+                            0x18 * vars.playthrough.Current,
+                            // Watch the active objective set name
+                            0x30 * idx + 0x20,
+                            0x18
+                        )
+                    );
+                }
+            }
+
+            // Making new watchers means new != old, so we need a var to ignore it for one tick
+            vars.justLoadedMissions = true;
+        }
+
+        foreach (var watcher in vars.cutsceneWatchers.Values) {
+            watcher.Update(game);
+        }
+    }
 }
 
 start {
+    if (
+        !vars.justLoadedMissions
+        && settings["start_echo"]
+        && vars.startingEchoObjective != null
+        && vars.startingEchoObjective.Current == 1 && vars.startingEchoObjective.Old == 0
+    ) {
+        return true;
+    }
+
     if (settings["start_sancturary"] && vars.currentWorld == "Sanctuary3_P") {
         return true;
     }
+
     return false;
 }
 
@@ -221,6 +359,7 @@ isLoading {
         }
         return true;
     }
+
     return false;
 }
 
@@ -237,5 +376,47 @@ split {
             return true;
         }
     }
+
+    if (!vars.justLoadedMissions) {
+        var CUTSCENE_DATA = new Dictionary<string, Tuple<string, TimeSpan>>() {
+            { "split_tyreen", new Tuple<string, TimeSpan>(
+                "Set_TyreenDeadCine_ObjectiveSet", TimeSpan.FromSeconds(2)
+            )},
+            { "split_jackpot", new Tuple<string, TimeSpan>(
+                "Set_FinalCinematic_ObjectiveSet", TimeSpan.FromSeconds(1)
+            )},
+            { "split_wedding", new Tuple<string, TimeSpan>(
+                "Set_FinalCredits_ObjectiveSet", TimeSpan.FromSeconds(1)
+            )},
+            { "split_bounty", new Tuple<string, TimeSpan>(
+                "SET_EndCredits_ObjectiveSet", TimeSpan.FromSeconds(0.1)
+            )},
+            { "split_krieg", new Tuple<string, TimeSpan>(
+                "SET_OutroCIN_ObjectiveSet", TimeSpan.FromSeconds(1)
+            )}
+        };
+
+        foreach (var item in vars.cutsceneWatchers) {
+            var name = item.Key;
+            var watcher = item.Value;
+            var objectiveSet = CUTSCENE_DATA[name].Item1;
+            var delay = CUTSCENE_DATA[name].Item2;
+
+            if (
+                settings[name]
+                && watcher.Current != watcher.Old
+                && vars.loadFromGNames(watcher.Current) == objectiveSet
+            ) {
+                vars.delayedSplitTime = timer.CurrentTime.GameTime + delay;
+                continue;
+            }
+        }
+    }
+
+    if (vars.delayedSplitTime != TimeSpan.Zero && vars.delayedSplitTime < timer.CurrentTime.GameTime) {
+        vars.delayedSplitTime = TimeSpan.Zero;
+        return true;
+    }
+
     return false;
 }
