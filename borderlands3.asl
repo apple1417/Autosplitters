@@ -11,6 +11,51 @@ startup {
     settings.Add("split_krieg", true, "Split on Krieg DLC ending cutscene");
     settings.Add("count_sqs", false, "Count SQs in \"SQs:\" counter component");
 
+    var ORDERED_VERSIONS = new List<string>() {
+        "OAK-PADDIESEL1-39",
+        "OAK-PATCHDIESEL-11",
+        "OAK-PATCHDIESEL-21",
+        "OAK-PATCHDIESEL-45",
+        "OAK-PATCHDIESEL-71",
+        "OAK-PATCHDIESEL-97",
+        "OAK-PATCHDIESEL-99",
+        "OAK-PATCHDIESEL0-45",
+        "OAK-PATCHDIESEL2-32",
+        "OAK-PATCHWIN64-49",
+        "OAK-PATCHDIESEL1-102",
+        "OAK-PATCHWIN641",
+        "OAK-PATCHDIESEL-178",
+        "OAK-PATCHWIN64-79",
+        "OAK-PATCHDIESEL1-137",
+        "OAK-PATCHWIN641-63",
+        "OAK-PATCHDIESEL0-103",
+        "OAK-PATCHWIN640-59",
+        "OAK-PATCHDIESEL-222",
+        "OAK-PATCHWIN64-123",
+        "OAK-PATCHDIESEL1-191",
+        "OAK-PATCHWIN641-118",
+        "OAK-PATCHDIESEL0-200",
+        "OAK-PATCHWIN640-149",
+        "OAK-PATCHDIESEL-226",
+        "OAK-PATCHWIN64-127",
+        "OAK-PATCHDIESEL0-224",
+        "OAK-PATCHWIN640-172",
+        "OAK-PATCHDIESEL1-304",
+        "OAK-PATCHWIN641-227",
+        "OAK-PATCHDIESEL0-280",
+        "OAK-PATCHWIN640-226",
+    };
+
+    vars.beforePatch = (Func<string, string, bool>)((version, patch) => {
+        var sanitizedVersion = version.StartsWith("Unstable ") ? version.Substring(9) : version;
+        var versionIdx = ORDERED_VERSIONS.IndexOf(sanitizedVersion);
+        if (versionIdx == -1) {
+            // Assume unknown versions are newer
+            return false;
+        }
+        return versionIdx < ORDERED_VERSIONS.IndexOf(patch);
+    });
+
     vars.loadFromGNames = null;
 
     vars.localPlayer = null;
@@ -26,6 +71,7 @@ startup {
 
     vars.lastGameWorld = null;
 
+    vars.missionComponentOffset = 0xC48;
     vars.justLoadedMissions = false;
     vars.delayedSplitTime = TimeSpan.Zero;
     vars.cutsceneWatchers = new Dictionary<string, MemoryWatcher<int>>();
@@ -129,7 +175,8 @@ init {
         });
     }
 
-    // See https://gist.github.com/apple1417/111a6d7f3a4b786d4752e3b458617e26 for info on these
+    // See this for info on the next two
+    // https://gist.github.com/apple1417/111a6d7f3a4b786d4752e3b458617e26
 
     ptr = scanner.Scan(new SigScanTarget(7,
         "4C 8D 0C 40",          // lea r9,[rax+rax*2]
@@ -146,29 +193,25 @@ init {
         ));
     }
 
-    var ALL_LOADING_PATTERNS = new List<Tuple<string, int>>() {
-        new Tuple<string, int>("D0010000", 0x9DC),
-        new Tuple<string, int>("F0010000", 0xA7C)
-    };
-
-    foreach (var pattern in ALL_LOADING_PATTERNS) {
-        ptr = scanner.Scan(new SigScanTarget(-119,
-            "C7 44 24 28 0C000010",         // mov [rsp+28],1000000C
-            "C7 44 24 20" + pattern.Item1   // mov [rsp+20],000001F0
-        ));
-        if (ptr == IntPtr.Zero) {
-            continue;
-        } else {
-            var relPos = (int)(ptr.ToInt64() - page.BaseAddress.ToInt64() + 4);
-            vars.isLoading = new MemoryWatcher<int>(new DeepPointer(
-                game.ReadValue<int>(ptr) + relPos, 0xF8, pattern.Item2
-            ));
-            break;
-        }
+    Tuple<string, int> loadingPattern;
+    if (vars.beforePatch(version, "OAK-PATCHDIESEL0-280")) {
+        loadingPattern = new Tuple<string, int>("D0010000", 0x9DC);
+    } else {
+        loadingPattern = new Tuple<string, int>("F0010000", 0xA7C);
     }
-    if (vars.isLoading == null) {
+
+    ptr = scanner.Scan(new SigScanTarget(-119,
+        "C7 44 24 28 0C000010",         // mov [rsp+28],1000000C
+        "C7 44 24 20" + loadingPattern.Item1   // mov [rsp+20],000001F0
+    ));
+    if (ptr == IntPtr.Zero) {
         print("Could not find loading pointer!");
         vars.isLoading = null;
+    } else {
+        var relPos = (int)(ptr.ToInt64() - page.BaseAddress.ToInt64() + 4);
+        vars.isLoading = new MemoryWatcher<int>(new DeepPointer(
+            game.ReadValue<int>(ptr) + relPos, 0xF8, loadingPattern.Item2
+        ));
     }
 
     ptr = scanner.Scan(new SigScanTarget(31,
@@ -189,10 +232,15 @@ init {
         vars.localPlayer = (int)(
             game.ReadValue<int>(ptr) + ptr.ToInt64() - page.BaseAddress.ToInt64() + 0xD4
         );
+        if (vars.beforePatch(version, "OAK-PATCHDIESEL0-280")) {
+            vars.missionComponentOffset = 0xC48;
+        } else {
+            vars.missionComponentOffset = 0xC60;
+        }
         // Playthroughs is the only constant pointer, the rest depend on playthough and the order
         //  you grabbed missions in
         vars.playthrough = new MemoryWatcher<int>(new DeepPointer(
-            vars.localPlayer, 0x30, 0xC60, 0x1E0
+            vars.localPlayer, 0x30, vars.missionComponentOffset, 0x1E0
         ));
         vars.justLoadedMissions = true;
     }
@@ -267,7 +315,7 @@ update {
         if (vars.missionCount == null || (playthroughChanged && vars.playthrough.Current >= 0)) {
             var playthrough = vars.playthrough.Current >= 0 ? vars.playthrough.Current : 0;
             vars.missionCount = new MemoryWatcher<int>(new DeepPointer(
-                vars.localPlayer, 0x30, 0xC60, 0x188, 0x18 * playthrough + 0x8
+                vars.localPlayer, 0x30, vars.missionComponentOffset, 0x188, 0x18 * playthrough + 0x8
             ));
             missionsChanged = true;
         }
@@ -292,7 +340,7 @@ update {
                 var missionName = vars.loadFromGNames(
                     new DeepPointer(
                         vars.localPlayer,
-                        0x30, 0xC60, 0x188,
+                        0x30, vars.missionComponentOffset, 0x188,
                         0x18 * vars.playthrough.Current,
                         0x30 * idx,
                         0x18
@@ -303,24 +351,26 @@ update {
                     vars.startingEchoObjective = new MemoryWatcher<int>(
                         new DeepPointer(
                             vars.localPlayer,
-                            0x30, 0xC60, 0x188,
+                            0x30, vars.missionComponentOffset, 0x188,
                             0x18 * vars.playthrough.Current,
                             // Watch the 5th objective (index 4/offset 0x10) specifically
                             0x30 * idx + 0x10,
                             0x10
                         )
                     );
+                    print("Found starting echo objective");
                 } else if (CUTSCENE_MISSIONS.ContainsKey(missionName)) {
                     vars.cutsceneWatchers[CUTSCENE_MISSIONS[missionName]] = new MemoryWatcher<int>(
                         new DeepPointer(
                             vars.localPlayer,
-                            0x30, 0xC60, 0x188,
+                            0x30, vars.missionComponentOffset, 0x188,
                             0x18 * vars.playthrough.Current,
                             // Watch the active objective set name
                             0x30 * idx + 0x20,
                             0x18
                         )
                     );
+                    print("Found " + CUTSCENE_MISSIONS[missionName] + " objective set");
                 }
             }
 
@@ -328,6 +378,9 @@ update {
             vars.justLoadedMissions = true;
         }
 
+        if (vars.startingEchoObjective != null) {
+            vars.startingEchoObjective.Update(game);
+        }
         foreach (var watcher in vars.cutsceneWatchers.Values) {
             watcher.Update(game);
         }
