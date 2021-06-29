@@ -2,14 +2,19 @@ state("Borderlands3") {}
 
 startup {
 #region Settings
-    settings.Add("start_echo", true, "Start the run when picking up Claptrap's echo");
-    settings.Add("start_sancturary", false, "Start the run when entering Sanctuary");
-    settings.Add("split_levels", false, "Split on level transitions");
-    settings.Add("split_tyreen", true, "Split on Main Campaign ending cutscene");
-    settings.Add("split_jackpot", true, "Split on Jackpot DLC ending cutscene");
-    settings.Add("split_wedding", true, "Split on Wedding DLC ending cutscene");
-    settings.Add("split_bounty", true, "Split on Bounty DLC ending cutscene");
-    settings.Add("split_krieg", true, "Split on Krieg DLC ending cutscene");
+    settings.Add("start_header", true, "Start the run on ...");
+    settings.Add("start_echo", true, "Picking up Claptrap's echo", "start_header");
+    settings.Add("start_jackpot", true, "Starting Jackpot DLC", "start_header");
+    settings.Add("start_wedding", true, "Starting Wedding DLC", "start_header");
+    settings.Add("start_bounty", true, "Starting Bounty DLC", "start_header");
+    settings.Add("start_krieg", true, "Starting Krieg DLC", "start_header");
+    settings.Add("split_header", true, "Split on ...");
+    settings.Add("split_levels", false, "Level transitions", "split_header");
+    settings.Add("split_tyreen", true, "Main Campaign ending cutscene", "split_header");
+    settings.Add("split_jackpot", true, "Jackpot DLC ending cutscene", "split_header");
+    settings.Add("split_wedding", true, "Wedding DLC ending cutscene", "split_header");
+    settings.Add("split_bounty", true, "Bounty DLC ending cutscene", "split_header");
+    settings.Add("split_krieg", true, "Krieg DLC ending cutscene", "split_header");
     settings.Add("count_sqs", false, "Count SQs in \"SQs:\" counter component");
 #endregion
 
@@ -129,9 +134,16 @@ startup {
 }
 
 shutdown {
-    timer.OnStart -= vars.resetOnStart;
-    if (vars.resetCounter != null) {
-        timer.OnStart -= vars.resetCounter;
+    // Being safe in case we failed during startup/init
+    if (((IDictionary<string, object>)vars).ContainsKey("resetOnStart")) {
+        if (vars.resetOnStart != null) {
+            timer.OnStart -= vars.resetOnStart;
+        }
+    }
+    if (((IDictionary<string, object>)vars).ContainsKey("resetOnStart")) {
+        if (vars.resetCounter != null) {
+            timer.OnStart -= vars.resetCounter;
+        }
     }
 }
 
@@ -142,24 +154,46 @@ init {
     var anyScanFailed = false;
 
     vars.watchers.Clear();
+
+    vars.currentMissions = null;
+    vars.newMissions = null;
+
+    vars.createMissionCountPointer = null;
+    vars.createMissionDataPointer = null;
+    vars.currentWorld = null;
     vars.loadFromGNames = null;
 
-    vars.currentWorld = null;
-    vars.localPlayer = null;
-    vars.missionComponentOffset = null;
-
 #region Version
-    ptr = scanner.Scan(new SigScanTarget(8,
-        "48 8B 4C 24 30",       // mov rcx,[rsp+30]
-        "4C 8D 05 ????????",    // lea r8,[Borderlands3.exe+4C370A0]    <----
-        "B8 3F000000"           // mov eax,0000003F
-    ));
-    if (ptr == IntPtr.Zero) {
+    var VERSION_PATTERNS = new List<Tuple<int, string[]>>() {
+        // Steam
+        new Tuple<int, string[]>(16, new string[] {
+            "8D 7B 14",             // lea edi,[rbx+14]
+            "E8 ????????",          // call Borderlands3.exe+41F5F0
+            "48 8B 4C 24 30",       // mov rcx,[rsp+30]
+            "4C 8D 05 ????????",    // lea r8,[Borderlands3.exe+4C370A0]    <----
+            "B8 3F000000"           // mov eax,0000003F
+        }),
+        // Epic
+        new Tuple<int, string[]>(18, new string[] {
+            "48 8D 4C 24 30",       // lea rcx,[rsp+30]
+            "E8 ????????",          // call Borderlands3.exe+412D30
+            "48 8B 4C 24 30",       // mov rcx,[rsp+30]
+            "4C 8D 05 ????????",    // lea r8,[Borderlands3.exe+4E96510]    <----
+            "41 B9 15000000",       // mov r9d,00000015
+            "B8 3F000000"           // mov eax,0000003F
+        })
+    };
+
+    version = "Unknown";
+    foreach (var pattern in VERSION_PATTERNS) {
+        ptr = scanner.Scan(new SigScanTarget(pattern.Item1, pattern.Item2));
+        if (ptr != IntPtr.Zero) {
+            version = game.ReadString(new IntPtr(game.ReadValue<int>(ptr) + ptr.ToInt64() + 4), 64);
+        }
+    }
+    if (version == "Unknown") {
         print("Could not find version pointer!");
-        version = "Unknown";
         // Not setting `anyScanFailed` here since unknown is already a failure message
-    } else {
-        version = game.ReadString(new IntPtr(game.ReadValue<int>(ptr) + ptr.ToInt64() + 4), 64);
     }
 #endregion
 
@@ -258,17 +292,44 @@ init {
         print("Could not find local player pointer!");
         anyScanFailed = true;
     } else {
-        vars.localPlayer = (int)(
+        var localPlayer = (int)(
             game.ReadValue<int>(ptr) + ptr.ToInt64() - page.BaseAddress.ToInt64() + 0xD4
         );
-        vars.missionComponentOffset = vars.beforePatch(version, "OAK-PATCHDIESEL0-280")
-                                      ? 0xC48
-                                      : 0xC60;
+        var missionComponentOffset = vars.beforePatch(version, "OAK-PATCHDIESEL0-280")
+                                     ? 0xC48
+                                     : 0xC60;
         // Playthroughs is the only constant pointer, the rest depend on playthough and the order
         //  you grabbed missions in
         vars.watchers.Add(new MemoryWatcher<int>(new DeepPointer(
-            vars.localPlayer, 0x30, vars.missionComponentOffset, 0x1E0
+            localPlayer, 0x30, missionComponentOffset, 0x1E0
         )){ Name = "playthrough" });
+
+        vars.createMissionCountPointer = (Func<DeepPointer>)(() => {
+            // In the case where we have an invalid playthrough index (-1), use playthrough 0 so the
+            //  pointer doesn't go out of bounds
+            // Practically, this only happens if when first loading the mission count, we'll always
+            // get a playthrough update before ever using the pointer, but good to be safe
+            var playthrough = Math.Max(0, vars.watchers["playthrough"].Current);
+            return new DeepPointer(
+                localPlayer,
+                0x30,
+                missionComponentOffset,
+                0x188,
+                0x18 * playthrough + 0x8
+            );
+        });
+
+        vars.createMissionDataPointer = (Func<int, int, DeepPointer>)((offset1, offset2) => {
+            return new DeepPointer(
+                localPlayer,
+                0x30,
+                missionComponentOffset,
+                0x188,
+                0x18 * vars.watchers["playthrough"].Current,
+                offset1,
+                offset2
+            );
+        });
     }
 #endregion
 
@@ -318,7 +379,9 @@ update {
 
 #region Missions
     if (vars.hasWatcher("playthrough")) {
-        // Getting here implies `vars.localPlayer` and `vars.missionComponentOffset` are not null
+        if (vars.newMissions != null) {
+            vars.newMissions.Clear();
+        }
 
         var missionsChanged = false;
         if (vars.hasWatcher("mission_count")) {
@@ -330,17 +393,12 @@ update {
             !vars.hasWatcher("mission_count")
             || (vars.watchers["playthrough"].Changed && vars.watchers["playthrough"].Current >= 0)
         ) {
-            // In the case where we have an invalid playthrough index (-1) when first loading the
-            //  mission count, use playthrough 0 so the pointer doesn't go out of bounds
-            // Practically, we'll get a playthrough update before ever using the pointer, but good
-            //  to be sage
-            var playthrough = Math.Max(0, vars.watchers["playthrough"].Current);
+            ((MemoryWatcherList)vars.watchers).RemoveAll(x => x.Name == "mission_count");
+            vars.watchers.Add(new MemoryWatcher<int>(
+                vars.createMissionCountPointer()
+            ){ Name = "mission_count" });
 
-            vars.watchers.Add(new MemoryWatcher<int>(new DeepPointer(
-                vars.localPlayer, 0x30, vars.missionComponentOffset, 0x188, 0x18 * playthrough + 0x8
-            )){ Name = "mission_count" });
             vars.watchers["mission_count"].Update(game);
-
             // The inital update doesn't set Changed, hence why we need this extra value
             missionsChanged = true;
         }
@@ -364,49 +422,43 @@ update {
                  x => x.Name == "Mission_Ep01_ChildrenOfTheVault_C"
             );
 
+            var oldMissions = vars.currentMissions;
+            vars.currentMissions = new List<string>();
+
             // Just incase this ever becomes an invalid pointer
             var missionCount = Math.Min(1000, vars.watchers["mission_count"].Current);
             for (var idx = 0; idx < missionCount; idx++) {
                 var missionName = vars.loadFromGNames(
-                    new DeepPointer(
-                        vars.localPlayer,
-                        0x30, vars.missionComponentOffset, 0x188,
-                        0x18 * vars.watchers["playthrough"].Current,
-                        0x30 * idx,
-                        0x18
-                    ).Deref<int>(game)
+                    vars.createMissionDataPointer(0x30 * idx, 0x18).Deref<int>(game)
                 );
                 if (missionName == null) {
                     continue;
                 }
+                vars.currentMissions.Add(missionName);
 
                 if (missionName == "Mission_Ep01_ChildrenOfTheVault_C") {
+                    // Watch the 5th objective (index 4/offset 0x10) specifically
                     vars.watchers.Add(new MemoryWatcher<int>(
-                        new DeepPointer(
-                            vars.localPlayer,
-                            0x30, vars.missionComponentOffset, 0x188,
-                            0x18 * vars.watchers["playthrough"].Current,
-                            // Watch the 5th objective (index 4/offset 0x10) specifically
-                            0x30 * idx + 0x10,
-                            0x10
-                        )
+                        vars.createMissionDataPointer(0x30 * idx + 0x10, 0x10)
                     ){ Name = "start_echo" });
                     print("Found starting echo objective");
                 } else if (CUTSCENE_MISSIONS.ContainsKey(missionName)) {
                     var setting_name = CUTSCENE_MISSIONS[missionName];
+                    // Watch the active objective set name
                     vars.watchers.Add(new MemoryWatcher<int>(
-                        new DeepPointer(
-                            vars.localPlayer,
-                            0x30, vars.missionComponentOffset, 0x188,
-                            0x18 * vars.watchers["playthrough"].Current,
-                            // Watch the active objective set name
-                            0x30 * idx + 0x20,
-                            0x18
-                        )
+                        vars.createMissionDataPointer(0x30 * idx + 0x20, 0x18)
                     ){ Name = setting_name });
                     print("Found " + setting_name + " objective set");
                 }
             }
+
+            vars.newMissions = ((List<string>)vars.currentMissions).Where(
+                x => (
+                    // Don't fill in anything when first loading missions
+                    oldMissions != null && vars.watchers["mission_count"].Old > 0
+                    && !oldMissions.Contains(x)
+                )
+            ).ToList();
         }
     }
 #endregion
@@ -421,9 +473,18 @@ start {
         return true;
     }
 
-    if (settings["start_sancturary"] && vars.currentWorld == "Sanctuary3_P") {
-        print("Starting due to entering Sancturary.");
-        return true;
+    var MISSION_DATA = new Dictionary<string, string>() {
+        { "Mission_DLC1_Ep01_MeetTimothy_C", "start_jackpot" },
+        { "EP01_DLC2_C", "start_wedding" },
+        { "Mission_Ep01_WestlandWelcome_C", "start_bounty" },
+        { "ALI_EP01_C", "start_krieg" },
+    };
+
+    foreach (var missionName in vars.newMissions) {
+        if (MISSION_DATA.ContainsKey(missionName) && settings[MISSION_DATA[missionName]]) {
+            print("Starting due to picking up mission " + missionName.ToString());
+            return true;
+        }
     }
 
     return false;
@@ -479,14 +540,14 @@ split {
         )
     };
 
-    foreach (var item in CUTSCENE_DATA) {
-        var setting_name = item.Item1;
+    foreach (var data in CUTSCENE_DATA) {
+        var setting_name = data.Item1;
         if (!vars.hasWatcher(setting_name) || !settings[setting_name]) {
             continue;
         }
 
-        var objectiveSet = item.Item2;
-        var delay = item.Item3;
+        var objectiveSet = data.Item2;
+        var delay = data.Item3;
         var watcher = vars.watchers[setting_name];
 
         if (watcher.Changed && vars.loadFromGNames(watcher.Current) == objectiveSet) {
