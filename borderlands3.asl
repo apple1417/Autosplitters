@@ -467,7 +467,11 @@ update {
 start {
     if (
         settings["start_echo"] && vars.hasWatcher("start_echo")
+        // Make sure not to fire when first loading in on a character
+        && vars.hasWatcher("playthrough") && vars.watchers["playthrough"].Old != -1
         && vars.watchers["start_echo"].Changed && vars.watchers["start_echo"].Current == 1
+        // If we don't have a world pointer ignore this, otherwise only start in Covenant Pass
+        && (vars.currentWorld == null || vars.currentWorld == "Recruitment_P")
     ) {
         print("Starting due to collecting echo.");
         return true;
@@ -522,38 +526,40 @@ split {
 #endregion
 
 #region Ending Cutscenes
-    var CUTSCENE_DATA = new List<Tuple<string, string, TimeSpan>>() {
-        new Tuple<string, string, TimeSpan>(
-            "split_tyreen", "Set_TyreenDeadCine_ObjectiveSet", TimeSpan.FromSeconds(2)
-        ),
-        new Tuple<string, string, TimeSpan>(
-            "split_jackpot", "Set_FinalCinematic_ObjectiveSet", TimeSpan.FromSeconds(1)
-        ),
-        new Tuple<string, string, TimeSpan>(
-            "split_wedding", "Set_FinalCredits_ObjectiveSet", TimeSpan.FromSeconds(1)
-        ),
-        new Tuple<string, string, TimeSpan>(
-            "split_bounty", "SET_EndCredits_ObjectiveSet", TimeSpan.FromSeconds(0.1)
-        ),
-        new Tuple<string, string, TimeSpan>(
-            "split_krieg", "SET_OutroCIN_ObjectiveSet", TimeSpan.FromSeconds(1)
-        )
-    };
+    if (vars.hasWatcher("playthrough") && vars.watchers["playthrough"].Old != -1) {
+        var CUTSCENE_DATA = new List<Tuple<string, string, TimeSpan>>() {
+            new Tuple<string, string, TimeSpan>(
+                "split_tyreen", "Set_TyreenDeadCine_ObjectiveSet", TimeSpan.FromSeconds(2)
+            ),
+            new Tuple<string, string, TimeSpan>(
+                "split_jackpot", "Set_FinalCinematic_ObjectiveSet", TimeSpan.FromSeconds(1)
+            ),
+            new Tuple<string, string, TimeSpan>(
+                "split_wedding", "Set_FinalCredits_ObjectiveSet", TimeSpan.FromSeconds(1)
+            ),
+            new Tuple<string, string, TimeSpan>(
+                "split_bounty", "SET_EndCredits_ObjectiveSet", TimeSpan.FromSeconds(0.1)
+            ),
+            new Tuple<string, string, TimeSpan>(
+                "split_krieg", "SET_OutroCIN_ObjectiveSet", TimeSpan.FromSeconds(1)
+            )
+        };
 
-    foreach (var data in CUTSCENE_DATA) {
-        var setting_name = data.Item1;
-        if (!vars.hasWatcher(setting_name) || !settings[setting_name]) {
-            continue;
-        }
+        foreach (var data in CUTSCENE_DATA) {
+            var setting_name = data.Item1;
+            if (!vars.hasWatcher(setting_name) || !settings[setting_name]) {
+                continue;
+            }
 
-        var objectiveSet = data.Item2;
-        var delay = data.Item3;
-        var watcher = vars.watchers[setting_name];
+            var objectiveSet = data.Item2;
+            var delay = data.Item3;
+            var watcher = vars.watchers[setting_name];
 
-        if (watcher.Changed && vars.loadFromGNames(watcher.Current) == objectiveSet) {
-            vars.delayedSplitTime = timer.CurrentTime.GameTime + delay;
-            // We have bigger problems if you manage to activate two of these at once
-            break;
+            if (watcher.Changed && vars.loadFromGNames(watcher.Current) == objectiveSet) {
+                vars.delayedSplitTime = timer.CurrentTime.GameTime + delay;
+                // We have bigger problems if you manage to activate two of these at once
+                break;
+            }
         }
     }
 #endregion
