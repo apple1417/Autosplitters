@@ -15,7 +15,7 @@ startup {
     settings.Add("split_wedding", true, "Wedding DLC ending cutscene", "split_header");
     settings.Add("split_bounty", true, "Bounty DLC ending cutscene", "split_header");
     settings.Add("split_krieg", true, "Krieg DLC ending cutscene", "split_header");
-    settings.Add("count_sqs", false, "Count SQs in \"SQs:\" counter component");
+    settings.Add("count_sqs", false, "Count SQs in \"SQs:\" counter component (requires reload)");
 #endregion
 
 #region Versions
@@ -48,10 +48,10 @@ startup {
         "OAK-PATCHWIN64-127",
         "OAK-PATCHDIESEL0-224",
         "OAK-PATCHWIN640-172",
-        "OAK-PATCHDIESEL1-304",
-        "OAK-PATCHWIN641-227",
-        "OAK-PATCHDIESEL0-280",
-        "OAK-PATCHWIN640-226",
+        "OAK-PATCHDIESEL1-304", // Confirmed
+        "OAK-PATCHWIN641-227",  // Confirmed
+        "OAK-PATCHDIESEL0-280", // Confirmed
+        "OAK-PATCHWIN640-226",  // Confirmed
     };
 
     // Need to pass this a version reference cause otherwise it'll always use what we had when
@@ -66,6 +66,8 @@ startup {
         return versionIdx < ORDERED_VERSIONS.IndexOf(patch);
     });
 #endregion
+
+    vars.unknownVersionTimeout = DateTime.MaxValue;
 
     vars.watchers = new MemoryWatcherList();
     vars.hasWatcher = (Func<string, bool>)(name => {
@@ -85,7 +87,9 @@ startup {
     vars.incrementCounter = null;
     vars.resetCounter = null;
 
-    // There's no good way to redo this on layout change so we'll just give in and put it in startup
+    // There's no good way to redo this on layout change
+    // While we could hackily look for stuff in update or startup, only grabbing it once here makes
+    //  for a relatively intuitive explanation for users - it just requires a reload
     try {
         foreach (var component in timer.Layout.Components) {
             // Counter isn't a default component, so we need to use reflection to keep this working
@@ -191,10 +195,63 @@ init {
             version = game.ReadString(new IntPtr(game.ReadValue<int>(ptr) + ptr.ToInt64() + 4), 64);
         }
     }
+#endregion
+
+#region Epic Process Fix
+    /*
+    Launching the game on Epic first creates a "launcher" process, which starts the actual game, but
+     still sticks around. Both processes are called "Borderlands3", but only the second one is valid
+     and has the pointers we need.
+    Livesplit will hook the last launched processed - so when you launch it after the game, it works
+     fine. However, if it's running before launching the game, it hooks onto the launcher while it's
+     still the only process, and cause it doesn't quit we get stuck with it.
+    To fix this, we use reflection to set the hooked game back to null (it's private), then exit and
+     let livesplit try hook again next tick - eventually it will pick the newer, correct, process.
+    We'll do this for 30s max, and assume we actually do have an unknown version then.
+    */
+
     if (version == "Unknown") {
-        print("Could not find version pointer!");
         // Not setting `anyScanFailed` here since unknown is already a failure message
+        if (vars.unknownVersionTimeout == DateTime.MaxValue) {
+            print("Could not find version pointer!");
+        }
+
+        if (vars.unknownVersionTimeout < DateTime.Now) {
+            print("Timeout expired; assuming version is actually unknown!");
+        } else if (
+            // If on Epic
+            !Directory.Exists(Path.Combine(
+                Path.GetDirectoryName(page.FileName),
+                @"..\..\..\Engine\Binaries\ThirdParty\steamworks"
+            ))
+        ) {
+            if (vars.unknownVersionTimeout == DateTime.MaxValue) {
+                print("May be due to hooking Epic launcher process instead of the game - retrying");
+                vars.unknownVersionTimeout = DateTime.Now.AddSeconds(30);
+            }
+
+            var allComponents = timer.Layout.Components;
+            // Grab the autosplitter from splits
+            if (timer.Run.AutoSplitter != null && timer.Run.AutoSplitter.Component != null) {
+                allComponents = allComponents.Append(timer.Run.AutoSplitter.Component);
+            }
+            foreach (var component in allComponents) {
+                var type = component.GetType();
+                if (type.Name == "ASLComponent") {
+                    // Could also check script path, but renaming the script breaks that, and
+                    //  running multiple autosplitters at once is already just asking for problems
+                    var script = type.GetProperty("Script").GetValue(component);
+                    script.GetType().GetField(
+                        "_game",
+                        BindingFlags.NonPublic | BindingFlags.Instance
+                    ).SetValue(script, null);
+                }
+            }
+            return;
+        }
     }
+
+    vars.unknownVersionTimeout = DateTime.MaxValue;
 #endregion
 
 #region GNames
@@ -339,6 +396,7 @@ init {
 }
 
 exit {
+    vars.unknownVersionTimeout = DateTime.MaxValue;
     timer.IsGameTimePaused = true;
 }
 
@@ -477,17 +535,19 @@ start {
         return true;
     }
 
-    var MISSION_DATA = new Dictionary<string, string>() {
-        { "Mission_DLC1_Ep01_MeetTimothy_C", "start_jackpot" },
-        { "EP01_DLC2_C", "start_wedding" },
-        { "Mission_Ep01_WestlandWelcome_C", "start_bounty" },
-        { "ALI_EP01_C", "start_krieg" },
-    };
+    if (vars.newMissions != null) {
+        var MISSION_DATA = new Dictionary<string, string>() {
+            { "Mission_DLC1_Ep01_MeetTimothy_C", "start_jackpot" },
+            { "EP01_DLC2_C", "start_wedding" },
+            { "Mission_Ep01_WestlandWelcome_C", "start_bounty" },
+            { "ALI_EP01_C", "start_krieg" },
+        };
 
-    foreach (var missionName in vars.newMissions) {
-        if (MISSION_DATA.ContainsKey(missionName) && settings[MISSION_DATA[missionName]]) {
-            print("Starting due to picking up mission " + missionName.ToString());
-            return true;
+        foreach (var missionName in vars.newMissions) {
+            if (MISSION_DATA.ContainsKey(missionName) && settings[MISSION_DATA[missionName]]) {
+                print("Starting due to picking up mission " + missionName.ToString());
+                return true;
+            }
         }
     }
 
