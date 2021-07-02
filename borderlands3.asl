@@ -219,10 +219,12 @@ init {
         if (vars.unknownVersionTimeout < DateTime.Now) {
             print("Timeout expired; assuming version is actually unknown!");
         } else if (
-            // If on Epic
-            !Directory.Exists(Path.Combine(
+            // Launcher process is `<bl3>\Borderlands3.exe`
+            // Actual game is `<bl3>\OakGame\Binaries\Win64\Borderlands3.exe`
+            // Check if we're the launcher
+            File.Exists(Path.Combine(
                 Path.GetDirectoryName(page.FileName),
-                @"..\..\..\Engine\Binaries\ThirdParty\steamworks"
+                @"OakGame\Binaries\Win64\Borderlands3.exe"
             ))
         ) {
             if (vars.unknownVersionTimeout == DateTime.MaxValue) {
