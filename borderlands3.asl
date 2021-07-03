@@ -8,6 +8,7 @@ startup {
     settings.Add("start_wedding", true, "Starting Wedding DLC", "start_header");
     settings.Add("start_bounty", true, "Starting Bounty DLC", "start_header");
     settings.Add("start_krieg", true, "Starting Krieg DLC", "start_header");
+    settings.Add("start_arms_race", true, "Starting Arms Race DLC", "start_header");
     settings.Add("split_header", true, "Split on ...");
     settings.Add("split_levels", false, "Level transitions", "split_header");
     settings.Add("split_tyreen", true, "Main Campaign ending cutscene", "split_header");
@@ -159,8 +160,7 @@ init {
 
     vars.watchers.Clear();
 
-    vars.currentMissions = null;
-    vars.newMissions = null;
+    vars.newMissions = new List<string>();
 
     vars.createMissionCountPointer = null;
     vars.createMissionDataPointer = null;
@@ -439,9 +439,7 @@ update {
 
 #region Missions
     if (vars.hasWatcher("playthrough")) {
-        if (vars.newMissions != null) {
-            vars.newMissions.Clear();
-        }
+        vars.newMissions.Clear();
 
         var missionsChanged = false;
         if (vars.hasWatcher("mission_count")) {
@@ -482,9 +480,6 @@ update {
                  x => x.Name == "Mission_Ep01_ChildrenOfTheVault_C"
             );
 
-            var oldMissions = vars.currentMissions;
-            vars.currentMissions = new List<string>();
-
             // Just incase this ever becomes an invalid pointer
             var missionCount = Math.Min(1000, vars.watchers["mission_count"].Current);
             for (var idx = 0; idx < missionCount; idx++) {
@@ -494,7 +489,28 @@ update {
                 if (missionName == null) {
                     continue;
                 }
-                vars.currentMissions.Add(missionName);
+
+                /*
+                Dectect new missions - we assume anything with the first objective incomplete is.
+
+                This isn't perfect, but it's relatively simple and works for what we need it to.
+                If we tried tracking what missions we had last update, we'd also need to track what
+                 character you've got selected, which also has side cases like deleting your char
+                 and making a new one with the same save game id, it just gets messy.
+
+                Picking up a mission or loading into an ungeared save will have the first objective
+                 incomplete, so will get picked up by this, while it won't pick up loading into a
+                 save where you've already finished the dlc for the first time.
+                The only side case is loading a save where you picked up one of the missions we
+                 auto start on for the first time, but didn't complete anything.
+                There's no real way to tell the difference between this and loading an ungeared save
+                 though, and you can always just switch the setting off if it becomes a problem.
+                */
+                var firstObjective = vars.createMissionDataPointer(0x30 * idx + 0x10, 0x0);
+                if (firstObjective.Deref<int>(game) == 0) {
+                    print("Picked up new mission " + missionName);
+                    vars.newMissions.Add(missionName);
+                }
 
                 if (missionName == "Mission_Ep01_ChildrenOfTheVault_C") {
                     // Watch the 5th objective (index 4/offset 0x10) specifically
@@ -511,14 +527,6 @@ update {
                     print("Found " + setting_name + " objective set");
                 }
             }
-
-            vars.newMissions = ((List<string>)vars.currentMissions).Where(
-                x => (
-                    // Don't fill in anything when first loading missions
-                    oldMissions != null && vars.watchers["mission_count"].Old > 0
-                    && !oldMissions.Contains(x)
-                )
-            ).ToList();
         }
     }
 #endregion
@@ -537,12 +545,14 @@ start {
         return true;
     }
 
-    if (vars.newMissions != null) {
+    // Similarly, if we know the world, only start in Sanctuary
+    if (vars.currentWorld == null || vars.currentWorld == "Sanctuary3_P") {
         var MISSION_DATA = new Dictionary<string, string>() {
             { "Mission_DLC1_Ep01_MeetTimothy_C", "start_jackpot" },
             { "EP01_DLC2_C", "start_wedding" },
             { "Mission_Ep01_WestlandWelcome_C", "start_bounty" },
             { "ALI_EP01_C", "start_krieg" },
+            { "Mission_GearUp_Intro_C", "start_arms_race" }
         };
 
         foreach (var missionName in vars.newMissions) {
