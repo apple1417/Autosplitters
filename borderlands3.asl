@@ -11,6 +11,7 @@ startup {
     settings.Add("start_arms_race", true, "Starting Arms Race DLC", "start_header");
     settings.Add("split_header", true, "Split on ...");
     settings.Add("split_levels", false, "Level transitions", "split_header");
+    settings.Add("split_levels_dont_end", true, "Unless doing so would end the run", "split_levels");
     settings.Add("split_tyreen", true, "Main Campaign ending cutscene", "split_header");
     settings.Add("split_jackpot", true, "Jackpot DLC ending cutscene", "split_header");
     settings.Add("split_wedding", true, "Wedding DLC ending cutscene", "split_header");
@@ -590,8 +591,15 @@ split {
     ) {
         var last = vars.lastGameWorld;
         vars.lastGameWorld = vars.currentWorld;
-        // Don't split on the first load into the game
-        if (last != null) {
+        if (
+            // Don't split on the first load into the game
+            last != null
+            // Don't split if we're on the last split and the setting is enabled
+            && !(
+                timer.CurrentSplitIndex == timer.Run.Count - 1
+                && settings["split_levels_dont_end"]
+            )
+        ) {
             return true;
         }
     }
