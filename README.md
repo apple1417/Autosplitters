@@ -4,6 +4,12 @@ Most of these use sigscans meaning they should work across multiple versions of 
 
 These don't all necessarily do autosplitting or load removal however, livesplit is just a nice tool to quickly do some memory reading with.
 
+### borderlands_tps.asl
+- Starts on gaining control
+- Removes loading screens / main menu
+- Splits on level transitions
+- Splits on interacting with vault key
+
 ### borderlands3.asl
 - Starts on picking up Claptrap's echo / picking up DLC quests
 - Removes loading screens / main menu
