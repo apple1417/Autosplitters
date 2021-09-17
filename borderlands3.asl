@@ -55,7 +55,9 @@ startup {
         "OAK-PATCHDIESEL0-280", // Confirmed
         "OAK-PATCHWIN640-226",  // Confirmed
         "OAK-PATCHDIESEL1-343", // Confirmed
-        "OAK-PATCHWIN641-270", // Confirmed
+        "OAK-PATCHWIN641-270",  // Confirmed
+        "OAK-PATCHDIESEL-272",  // Confirmed
+        "OAK-PATCHWIN64-177",   // Confirmed
     };
 
     // Need to pass this a version reference cause otherwise it'll always use what we had when
@@ -71,7 +73,7 @@ startup {
     });
 #endregion
 
-    vars.unknownVersionTimeout = DateTime.MaxValue;
+    vars.epicProcessTimeout = DateTime.MaxValue;
 
     vars.watchers = new MemoryWatcherList();
     vars.hasWatcher = (Func<string, bool>)(name => {
@@ -157,48 +159,6 @@ shutdown {
 
 init {
     var page = modules.First();
-    var scanner = new SignatureScanner(game, page.BaseAddress, page.ModuleMemorySize);
-    var ptr = IntPtr.Zero;
-    var anyScanFailed = false;
-
-    vars.watchers.Clear();
-
-    vars.newMissions = new List<string>();
-
-    vars.createMissionCountPointer = null;
-    vars.createMissionDataPointer = null;
-    vars.currentWorld = null;
-    vars.loadFromGNames = null;
-
-#region Version
-    var VERSION_PATTERNS = new List<Tuple<int, string[]>>() {
-        // Steam
-        new Tuple<int, string[]>(16, new string[] {
-            "8D 7B 14",             // lea edi,[rbx+14]
-            "E8 ????????",          // call Borderlands3.exe+41F5F0
-            "48 8B 4C 24 30",       // mov rcx,[rsp+30]
-            "4C 8D 05 ????????",    // lea r8,[Borderlands3.exe+4C370A0]    <----
-            "B8 3F000000"           // mov eax,0000003F
-        }),
-        // Epic
-        new Tuple<int, string[]>(18, new string[] {
-            "48 8D 4C 24 30",       // lea rcx,[rsp+30]
-            "E8 ????????",          // call Borderlands3.exe+412D30
-            "48 8B 4C 24 30",       // mov rcx,[rsp+30]
-            "4C 8D 05 ????????",    // lea r8,[Borderlands3.exe+4E96510]    <----
-            "41 B9 15000000",       // mov r9d,00000015
-            "B8 3F000000"           // mov eax,0000003F
-        })
-    };
-
-    version = "Unknown";
-    foreach (var pattern in VERSION_PATTERNS) {
-        ptr = scanner.Scan(new SigScanTarget(pattern.Item1, pattern.Item2));
-        if (ptr != IntPtr.Zero) {
-            version = game.ReadString(new IntPtr(game.ReadValue<int>(ptr) + ptr.ToInt64() + 4), 64);
-        }
-    }
-#endregion
 
 #region Epic Process Fix
     /*
@@ -210,31 +170,21 @@ init {
      still the only process, and cause it doesn't quit we get stuck with it.
     To fix this, we use reflection to set the hooked game back to null (it's private), then exit and
      let livesplit try hook again next tick - eventually it will pick the newer, correct, process.
-    We'll do this for 30s max, and assume we actually do have an unknown version then.
+    We'll do this for 30s max, and assume we're actually the game then.
+
+    Launcher process is `<bl3>\Borderlands3.exe`
+    Actual game is `<bl3>\OakGame\Binaries\Win64\Borderlands3.exe`
     */
-
-    if (version == "Unknown") {
-        // Not setting `anyScanFailed` here since unknown is already a failure message
-        if (vars.unknownVersionTimeout == DateTime.MaxValue) {
-            print("Could not find version pointer!");
-        }
-
-        if (vars.unknownVersionTimeout < DateTime.Now) {
-            print("Timeout expired; assuming version is actually unknown!");
-        } else if (
-            // Launcher process is `<bl3>\Borderlands3.exe`
-            // Actual game is `<bl3>\OakGame\Binaries\Win64\Borderlands3.exe`
-            // Check if we're the launcher
-            File.Exists(Path.Combine(
-                Path.GetDirectoryName(page.FileName),
-                @"OakGame\Binaries\Win64\Borderlands3.exe"
-            ))
-        ) {
-            if (vars.unknownVersionTimeout == DateTime.MaxValue) {
-                print("May be due to hooking Epic launcher process instead of the game - retrying");
-                vars.unknownVersionTimeout = DateTime.Now.AddSeconds(30);
-            }
-
+    if (File.Exists(Path.Combine(
+        Path.GetDirectoryName(page.FileName),
+        "OakGame", "Binaries", "Win64", "Borderlands3.exe"
+    ))) {
+        if (vars.epicProcessTimeout == DateTime.MaxValue) {
+            print("Seem to have hooked the epic launcher process - retrying");
+            vars.epicProcessTimeout = DateTime.Now.AddSeconds(30);
+        } else if (vars.epicProcessTimeout < DateTime.Now) {
+            print("Timeout expired; assuming this is actually the game process.");
+        } else {
             var allComponents = timer.Layout.Components;
             // Grab the autosplitter from splits
             if (timer.Run.AutoSplitter != null && timer.Run.AutoSplitter.Component != null) {
@@ -254,9 +204,106 @@ init {
             }
             return;
         }
+    } else {
+        vars.epicProcessTimeout = DateTime.MaxValue;
     }
+#endregion
 
-    vars.unknownVersionTimeout = DateTime.MaxValue;
+    var scanner = new SignatureScanner(game, page.BaseAddress, page.ModuleMemorySize);
+    var ptr = IntPtr.Zero;
+    var anyScanFailed = false;
+
+    vars.watchers.Clear();
+
+    vars.newMissions = new List<string>();
+
+    vars.createMissionCountPointer = null;
+    vars.createMissionDataPointer = null;
+    vars.currentWorld = null;
+    vars.loadFromGNames = null;
+
+#region Version
+    var VERSION_PATTERNS = new List<Tuple<int, string[]>>() {
+        // Steam pre OAK-PATCHWIN64-177
+        new Tuple<int, string[]>(16, new string[] {
+            "8D 7B 14",             // lea edi,[rbx+14]
+            "E8 ????????",          // call Borderlands3.exe+41F5F0
+            "48 8B 4C 24 30",       // mov rcx,[rsp+30]
+            "4C 8D 05 ????????",    // lea r8,[Borderlands3.exe+4C370A0]    <----
+            "B8 3F000000"           // mov eax,0000003F
+        }),
+        // Epic
+        new Tuple<int, string[]>(18, new string[] {
+            "48 8D 4C 24 30",       // lea rcx,[rsp+30]
+            "E8 ????????",          // call Borderlands3.exe+412D30
+            "48 8B 4C 24 30",       // mov rcx,[rsp+30]
+            "4C 8D 05 ????????",    // lea r8,[Borderlands3.exe+4E96510]    <----
+            "41 B9 15000000",       // mov r9d,00000015
+            "B8 3F000000"           // mov eax,0000003F
+        }),
+        // Steam post OAK-PATCHWIN64-177
+        new Tuple<int, string[]>(18, new string[] {
+            "48 8D 4C 24 30",       // lea rcx,[rsp+30]
+            "E8 ????????",          // call Borderlands3.exe+412D30
+            "48 8B 4C 24 30",       // mov rcx,[rsp+30]
+            "4C 8D 05 ????????",    // lea r8,[Borderlands3.exe+4E96510]    <----
+            "41 B9 13000000",       // mov r9d,00000015
+            "B8 3F000000"           // mov eax,0000003F
+        })
+    };
+    var VERSION_ADDED_PAKFILES = new List<Tuple<string, string>>() {
+        // We can't tell between `OAK-PADDIESEL1-39` and `OAK-PATCHDIESEL-11` this way since no
+        //  files were added
+        new Tuple<string, string>("OAK-PATCHDIESEL-21", "pakchunk0-WindowsNoEditor_0_P.pak"),
+        new Tuple<string, string>("OAK-PATCHDIESEL-45", "pakchunk0-WindowsNoEditor_1_P.pak"),
+        new Tuple<string, string>("OAK-PATCHDIESEL-71", "pakchunk0-WindowsNoEditor_2_P.pak"),
+        new Tuple<string, string>("OAK-PATCHDIESEL-97", "pakchunk4-WindowsNoEditor_3_P.pak"),
+        new Tuple<string, string>("OAK-PATCHDIESEL-99", "pakchunk0-WindowsNoEditor_3_P.pak" ),
+        new Tuple<string, string>("OAK-PATCHDIESEL0-45", "pakchunk0-WindowsNoEditor_4_P.pak"),
+        new Tuple<string, string>("OAK-PATCHDIESEL2-32", "pakchunk0-WindowsNoEditor_5_P.pak"),
+        new Tuple<string, string>("OAK-PATCHDIESEL1-102", "pakchunk2-WindowsNoEditor_4_P.pak"),
+        new Tuple<string, string>("OAK-PATCHDIESEL-178", "pakchunk0-WindowsNoEditor_6_P.pak"),
+        new Tuple<string, string>("OAK-PATCHDIESEL1-137", "pakchunk0-WindowsNoEditor_7_P.pak"),
+        new Tuple<string, string>("OAK-PATCHDIESEL0-103", "pakchunk0-WindowsNoEditor_8_P.pak"),
+        new Tuple<string, string>("OAK-PATCHDIESEL-222", "pakchunk0-WindowsNoEditor_9_P.pak"),
+        new Tuple<string, string>("OAK-PATCHDIESEL1-191", "pakchunk0-WindowsNoEditor_10_P.pak"),
+        new Tuple<string, string>("OAK-PATCHDIESEL0-200", "pakchunk0-WindowsNoEditor_11_P.pak"),
+        new Tuple<string, string>("OAK-PATCHDIESEL-226", "pakchunk0-WindowsNoEditor_12_P.pak"),
+        new Tuple<string, string>("OAK-PATCHDIESEL0-224", "pakchunk0-WindowsNoEditor_13_P.pak"),
+        new Tuple<string, string>("OAK-PATCHDIESEL1-304", "pakchunk0-WindowsNoEditor_14_P.pak"),
+        new Tuple<string, string>("OAK-PATCHDIESEL0-280", "pakchunk0-WindowsNoEditor_15_P.pak"),
+        new Tuple<string, string>("OAK-PATCHDIESEL1-343", "pakchunk0-WindowsNoEditor_16_P.pak"),
+        new Tuple<string, string>("OAK-PATCHDIESEL-272", "pakchunk0-WindowsNoEditor_17_P.pak"),
+    };
+
+    version = "Unknown";
+    foreach (var pattern in VERSION_PATTERNS) {
+        ptr = scanner.Scan(new SigScanTarget(pattern.Item1, pattern.Item2));
+        if (ptr != IntPtr.Zero) {
+            var str = game.ReadString(new IntPtr(game.ReadValue<int>(ptr) + ptr.ToInt64() + 4), 64);
+            if (str.StartsWith("OAK")) {
+                version = str;
+                break;
+            }
+        }
+    }
+    if (version == "Unknown") {
+        print("Couldn't find version in memory, falling back to pakfile approach!");
+
+        foreach (var item in VERSION_ADDED_PAKFILES.Reverse<Tuple<string, string>>()) {
+            if (File.Exists(Path.Combine(
+                Path.GetDirectoryName(page.FileName),
+                "..", "..",
+                "Content", "Paks", item.Item2
+            ))) {
+                version = item.Item1;
+                break;
+            }
+        }
+        if (version == "Unknown") {
+            print("Pakfile approach also failed!");
+        }
+    }
 #endregion
 
 #region GNames
@@ -370,7 +417,7 @@ init {
             // In the case where we have an invalid playthrough index (-1), use playthrough 0 so the
             //  pointer doesn't go out of bounds
             // Practically, this only happens if when first loading the mission count, we'll always
-            // get a playthrough update before ever using the pointer, but good to be safe
+            //  get a playthrough update before ever using the pointer, but good to be safe
             var playthrough = Math.Max(0, vars.watchers["playthrough"].Current);
             return new DeepPointer(
                 localPlayer,
