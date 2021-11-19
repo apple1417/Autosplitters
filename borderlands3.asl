@@ -58,6 +58,8 @@ startup {
         "OAK-PATCHWIN641-270",  // Confirmed
         "OAK-PATCHDIESEL-272",  // Confirmed
         "OAK-PATCHWIN64-177",   // Confirmed
+        "OAK-PATCHDIESEL0-347", // Confirmed
+        "OAK-PATCHWIN640-293",  // Confirmed
     };
 
     // Need to pass this a version reference cause otherwise it'll always use what we had when
