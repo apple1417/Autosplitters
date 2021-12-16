@@ -17,79 +17,60 @@ startup {
     settings.Add("split_wedding", true, "Wedding DLC ending cutscene", "split_header");
     settings.Add("split_bounty", true, "Bounty DLC ending cutscene", "split_header");
     settings.Add("split_krieg", true, "Krieg DLC ending cutscene", "split_header");
+    settings.Add("use_char_time", false, "Track character time, instead of loadless.");
     settings.Add("count_sqs", false, "Count SQs in \"SQs:\" counter component (requires reload)");
 #endregion
 
-#region Versions
-    var ORDERED_VERSIONS = new List<string>() {
-        "OAK-PADDIESEL1-39",
-        "OAK-PATCHDIESEL-11",
-        "OAK-PATCHDIESEL-21",
-        "OAK-PATCHDIESEL-45",
-        "OAK-PATCHDIESEL-71",
-        "OAK-PATCHDIESEL-97",
-        "OAK-PATCHDIESEL-99",
-        "OAK-PATCHDIESEL0-45",
-        "OAK-PATCHDIESEL2-32",
-        "OAK-PATCHWIN64-49",
-        "OAK-PATCHDIESEL1-102",
-        "OAK-PATCHWIN641",
-        "OAK-PATCHDIESEL-178",
-        "OAK-PATCHWIN64-79",
-        "OAK-PATCHDIESEL1-137",
-        "OAK-PATCHWIN641-63",
-        "OAK-PATCHDIESEL0-103",
-        "OAK-PATCHWIN640-59",
-        "OAK-PATCHDIESEL-222",
-        "OAK-PATCHWIN64-123",
-        "OAK-PATCHDIESEL1-191",
-        "OAK-PATCHWIN641-118",
-        "OAK-PATCHDIESEL0-200",
-        "OAK-PATCHWIN640-149",
-        "OAK-PATCHDIESEL-226",
-        "OAK-PATCHWIN64-127",
-        "OAK-PATCHDIESEL0-224",
-        "OAK-PATCHWIN640-172",
-        "OAK-PATCHDIESEL1-304", // Confirmed
-        "OAK-PATCHWIN641-227",  // Confirmed
-        "OAK-PATCHDIESEL0-280", // Confirmed
-        "OAK-PATCHWIN640-226",  // Confirmed
-        "OAK-PATCHDIESEL1-343", // Confirmed
-        "OAK-PATCHWIN641-270",  // Confirmed
-        "OAK-PATCHDIESEL-272",  // Confirmed
-        "OAK-PATCHWIN64-177",   // Confirmed
-        "OAK-PATCHDIESEL0-347", // Confirmed
-        "OAK-PATCHWIN640-293",  // Confirmed
-    };
-
-    // Need to pass this a version reference cause otherwise it'll always use what we had when
-    //  defining this
-    vars.beforePatch = (Func<string, string, bool>)((version, patch) => {
-        var sanitizedVersion = version.StartsWith("Unstable ") ? version.Substring(9) : version;
-        var versionIdx = ORDERED_VERSIONS.IndexOf(sanitizedVersion);
-        if (versionIdx == -1) {
-            // Assume unknown versions are newer
-            return false;
-        }
-        return versionIdx < ORDERED_VERSIONS.IndexOf(patch);
-    });
-#endregion
+    timer.IsGameTimePaused = true;
 
     vars.epicProcessTimeout = DateTime.MaxValue;
+    vars.cts = new CancellationTokenSource();
 
     vars.watchers = new MemoryWatcherList();
     vars.hasWatcher = (Func<string, bool>)(name => {
         return ((MemoryWatcherList)vars.watchers).Any(x => x.Name == name);
     });
 
+    vars.newMissions = new List<string>();
+
     vars.delayedSplitTime = TimeSpan.Zero;
     vars.lastGameWorld = null;
 
-    vars.resetOnStart = (EventHandler)((e, o) => {
-        vars.delayedSplitTime = TimeSpan.Zero;
-        vars.lastGameWorld = null;
-    });
-    timer.OnStart += vars.resetOnStart;
+#region Mission Data
+    vars.SPLIT_MISSION_DATA = new List<Tuple<string, string, string, TimeSpan>>() {
+        // Setting, Mission, ObjectiveSet, Delay
+        new Tuple<string, string, string, TimeSpan>(
+            "split_tyreen", "Mission_Ep23_TyreenFinalBoss_C", "Set_TyreenDeadCine_ObjectiveSet",
+            TimeSpan.FromSeconds(2)
+        ),
+        new Tuple<string, string, string, TimeSpan>(
+            "split_jackpot", "Mission_DLC1_Ep07_TheHeist_C", "Set_FinalCinematic_ObjectiveSet",
+            TimeSpan.FromSeconds(1)
+        ),
+        new Tuple<string, string, string, TimeSpan>(
+            "split_wedding", "EP06_DLC2_C", "Set_FinalCredits_ObjectiveSet",
+            TimeSpan.FromSeconds(1)
+        ),
+        new Tuple<string, string, string, TimeSpan>(
+            "split_bounty", "Mission_Ep05_Crater_C", "SET_EndCredits_ObjectiveSet",
+            TimeSpan.FromSeconds(0.1)
+        ),
+        new Tuple<string, string, string, TimeSpan>(
+            "split_krieg", "ALI_EP05_C", "SET_OutroCIN_ObjectiveSet",
+            TimeSpan.FromSeconds(1)
+        )
+    };
+
+    vars.START_MISSION_DATA = new Dictionary<string, string>() {
+        // Mission: Setting
+        // Mission as key is more convenient for where we use this
+        { "Mission_DLC1_Ep01_MeetTimothy_C", "start_jackpot" },
+        { "EP01_DLC2_C", "start_wedding" },
+        { "Mission_Ep01_WestlandWelcome_C", "start_bounty" },
+        { "ALI_EP01_C", "start_krieg" },
+        { "Mission_GearUp_Intro_C", "start_arms_race" }
+    };
+#endregion
 
 #region Counter
     vars.incrementCounter = null;
@@ -129,10 +110,9 @@ startup {
                 incrMethod.Invoke(counter, new object[0]);
             });
 
-            vars.resetCounter = (EventHandler)((e, o) => {
+            vars.resetCounter = (Action)(() => {
                 resetMethod.Invoke(counter, new object[0]);
             });
-            timer.OnStart += vars.resetCounter;
 
             break;
         }
@@ -141,26 +121,24 @@ startup {
     if (vars.incrementCounter == null) {
         print("Did not find SQ counter component");
         vars.incrementCounter = (Action)(() => {});
+        vars.resetCounter = vars.incrementCounter;
     }
 #endregion
 }
 
 shutdown {
-    // Being safe in case we failed during startup/init
-    if (((IDictionary<string, object>)vars).ContainsKey("resetOnStart")) {
-        if (vars.resetOnStart != null) {
-            timer.OnStart -= vars.resetOnStart;
-        }
-    }
-    if (((IDictionary<string, object>)vars).ContainsKey("resetOnStart")) {
-        if (vars.resetCounter != null) {
-            timer.OnStart -= vars.resetCounter;
-        }
-    }
+    vars.cts.Cancel();
+}
+
+onStart {
+    vars.delayedSplitTime = TimeSpan.Zero;
+    vars.lastGameWorld = null;
+
+    vars.resetCounter();
 }
 
 init {
-    var page = modules.First();
+    var exe = modules.First();
 
 #region Epic Process Fix
     /*
@@ -178,7 +156,7 @@ init {
     Actual game is `<bl3>\OakGame\Binaries\Win64\Borderlands3.exe`
     */
     if (File.Exists(Path.Combine(
-        Path.GetDirectoryName(page.FileName),
+        Path.GetDirectoryName(exe.FileName),
         "OakGame", "Binaries", "Win64", "Borderlands3.exe"
     ))) {
         if (vars.epicProcessTimeout == DateTime.MaxValue) {
@@ -211,101 +189,49 @@ init {
     }
 #endregion
 
-    var scanner = new SignatureScanner(game, page.BaseAddress, page.ModuleMemorySize);
+    var scanner = new SignatureScanner(game, exe.BaseAddress, exe.ModuleMemorySize);
     var ptr = IntPtr.Zero;
-    var anyScanFailed = false;
 
+    vars.newMissions.Clear();
     vars.watchers.Clear();
 
-    vars.newMissions = new List<string>();
-
-    vars.createMissionCountPointer = null;
-    vars.createMissionDataPointer = null;
-    vars.currentWorld = null;
+    vars.doMissionUpdate = null;
     vars.loadFromGNames = null;
 
-#region Version
-    var VERSION_PATTERNS = new List<Tuple<int, string[]>>() {
-        // Steam pre OAK-PATCHWIN64-177
-        new Tuple<int, string[]>(16, new string[] {
-            "8D 7B 14",             // lea edi,[rbx+14]
-            "E8 ????????",          // call Borderlands3.exe+41F5F0
-            "48 8B 4C 24 30",       // mov rcx,[rsp+30]
-            "4C 8D 05 ????????",    // lea r8,[Borderlands3.exe+4C370A0]    <----
-            "B8 3F000000"           // mov eax,0000003F
-        }),
-        // Epic
-        new Tuple<int, string[]>(18, new string[] {
-            "48 8D 4C 24 30",       // lea rcx,[rsp+30]
-            "E8 ????????",          // call Borderlands3.exe+412D30
-            "48 8B 4C 24 30",       // mov rcx,[rsp+30]
-            "4C 8D 05 ????????",    // lea r8,[Borderlands3.exe+4E96510]    <----
-            "41 B9 15000000",       // mov r9d,00000015
-            "B8 3F000000"           // mov eax,0000003F
-        }),
-        // Steam post OAK-PATCHWIN64-177
-        new Tuple<int, string[]>(18, new string[] {
-            "48 8D 4C 24 30",       // lea rcx,[rsp+30]
-            "E8 ????????",          // call Borderlands3.exe+412D30
-            "48 8B 4C 24 30",       // mov rcx,[rsp+30]
-            "4C 8D 05 ????????",    // lea r8,[Borderlands3.exe+4E96510]    <----
-            "41 B9 13000000",       // mov r9d,00000015
-            "B8 3F000000"           // mov eax,0000003F
-        })
-    };
-    var VERSION_ADDED_PAKFILES = new List<Tuple<string, string>>() {
-        // We can't tell between `OAK-PADDIESEL1-39` and `OAK-PATCHDIESEL-11` this way since no
-        //  files were added
-        new Tuple<string, string>("OAK-PATCHDIESEL-21", "pakchunk0-WindowsNoEditor_0_P.pak"),
-        new Tuple<string, string>("OAK-PATCHDIESEL-45", "pakchunk0-WindowsNoEditor_1_P.pak"),
-        new Tuple<string, string>("OAK-PATCHDIESEL-71", "pakchunk0-WindowsNoEditor_2_P.pak"),
-        new Tuple<string, string>("OAK-PATCHDIESEL-97", "pakchunk4-WindowsNoEditor_3_P.pak"),
-        new Tuple<string, string>("OAK-PATCHDIESEL-99", "pakchunk0-WindowsNoEditor_3_P.pak" ),
-        new Tuple<string, string>("OAK-PATCHDIESEL0-45", "pakchunk0-WindowsNoEditor_4_P.pak"),
-        new Tuple<string, string>("OAK-PATCHDIESEL2-32", "pakchunk0-WindowsNoEditor_5_P.pak"),
-        new Tuple<string, string>("OAK-PATCHDIESEL1-102", "pakchunk2-WindowsNoEditor_4_P.pak"),
-        new Tuple<string, string>("OAK-PATCHDIESEL-178", "pakchunk0-WindowsNoEditor_6_P.pak"),
-        new Tuple<string, string>("OAK-PATCHDIESEL1-137", "pakchunk0-WindowsNoEditor_7_P.pak"),
-        new Tuple<string, string>("OAK-PATCHDIESEL0-103", "pakchunk0-WindowsNoEditor_8_P.pak"),
-        new Tuple<string, string>("OAK-PATCHDIESEL-222", "pakchunk0-WindowsNoEditor_9_P.pak"),
-        new Tuple<string, string>("OAK-PATCHDIESEL1-191", "pakchunk0-WindowsNoEditor_10_P.pak"),
-        new Tuple<string, string>("OAK-PATCHDIESEL0-200", "pakchunk0-WindowsNoEditor_11_P.pak"),
-        new Tuple<string, string>("OAK-PATCHDIESEL-226", "pakchunk0-WindowsNoEditor_12_P.pak"),
-        new Tuple<string, string>("OAK-PATCHDIESEL0-224", "pakchunk0-WindowsNoEditor_13_P.pak"),
-        new Tuple<string, string>("OAK-PATCHDIESEL1-304", "pakchunk0-WindowsNoEditor_14_P.pak"),
-        new Tuple<string, string>("OAK-PATCHDIESEL0-280", "pakchunk0-WindowsNoEditor_15_P.pak"),
-        new Tuple<string, string>("OAK-PATCHDIESEL1-343", "pakchunk0-WindowsNoEditor_16_P.pak"),
-        new Tuple<string, string>("OAK-PATCHDIESEL-272", "pakchunk0-WindowsNoEditor_17_P.pak"),
-    };
+    vars.currentWorld = null;
 
-    version = "Unknown";
-    foreach (var pattern in VERSION_PATTERNS) {
-        ptr = scanner.Scan(new SigScanTarget(pattern.Item1, pattern.Item2));
-        if (ptr != IntPtr.Zero) {
-            var str = game.ReadString(new IntPtr(game.ReadValue<int>(ptr) + ptr.ToInt64() + 4), 64);
-            if (str.StartsWith("OAK")) {
-                version = str;
-                break;
-            }
-        }
-    }
-    if (version == "Unknown") {
-        print("Couldn't find version in memory, falling back to pakfile approach!");
+#region UE Constants
+    // UObject
+    const int CLASS_OFFSET = 0x10;
+    const int NAME_OFFSET = 0x18;
 
-        foreach (var item in VERSION_ADDED_PAKFILES.Reverse<Tuple<string, string>>()) {
-            if (File.Exists(Path.Combine(
-                Path.GetDirectoryName(page.FileName),
-                "..", "..",
-                "Content", "Paks", item.Item2
-            ))) {
-                version = item.Item1;
-                break;
-            }
-        }
-        if (version == "Unknown") {
-            print("Pakfile approach also failed!");
-        }
-    }
+    // UField
+    const int NEXT_OFFSET = 0x28;
+
+    // UStruct
+    const int SUPERFIELD_OFFSET = 0x30;
+    const int CHILDREN_OFFSET = 0x38;
+
+    // UProperty
+    const int ELEMENT_SIZE_OFFSET = 0x34;
+    const int OFFSET_INTERNAL_OFFSET = 0x44;
+
+    // UObjectProperty
+    const int PROPERTY_CLASS_OFFSET = 0x70;
+
+    // UClassProperty
+    const int INNER_PROPERTY_OFFSET = 0x70;
+
+    // UStructProperty
+    const int PROPERTY_STRUCT_OFFSET = 0x70;
+
+    // FArray
+    const int ARRAY_DATA_OFFSET = 0x0;
+    const int ARRAY_COUNT_OFFSET = 0x8;
+
+    // GNames
+    const int GNAMES_CHUNK_SIZE = 0x4000;
+    const int GNAMES_NAME_OFFSET = 0x10;
 #endregion
 
 #region GNames
@@ -325,26 +251,35 @@ init {
     ));
     if (ptr == IntPtr.Zero) {
         print("Could not find GNames pointer!");
-        anyScanFailed = true;
+        version = "ERROR";
+        return;
     } else {
         var GNames = (int)(
-            game.ReadValue<int>(ptr) + ptr.ToInt64() - page.BaseAddress.ToInt64() + 4
+            game.ReadValue<int>(ptr) + ptr.ToInt64() - exe.BaseAddress.ToInt64() + 4
         );
 
+        var GNamesCache = new Dictionary<int, string>() {
+            // Technically this is wrong, index 0 is valid but is normally "None"
+            // Practically, if we have 0 we probably have a bad pointer
+            { 0, null }
+        };
+
         vars.loadFromGNames = (Func<int, string>)((idx) => {
-            if (idx == 0) {
-                // Technically this is wrong, index 0 is valid but is normally "None"
-                // Practically, if we have 0 we probably have a bad pointer
-                return null;
+            if (GNamesCache.ContainsKey(idx)) {
+                return GNamesCache[idx];
             }
-            var namePtr = new DeepPointer(GNames, (idx / 0x4000) * 8, (idx % 0x4000) * 8, 0x10);
-            return namePtr.DerefString(game, 64);
+            var name = new DeepPointer(
+                GNames,
+                (idx / GNAMES_CHUNK_SIZE) * 8,
+                (idx % GNAMES_CHUNK_SIZE) * 8,
+                GNAMES_NAME_OFFSET
+            ).DerefString(game, 64);
+
+            GNamesCache[idx] = name;
+            return name;
         });
     }
 #endregion
-
-    // See this for info on the next two
-    // https://gist.github.com/apple1417/111a6d7f3a4b786d4752e3b458617e26
 
 #region World Name
     ptr = scanner.Scan(new SigScanTarget(7,
@@ -354,11 +289,12 @@ init {
     ));
     if (ptr == IntPtr.Zero) {
         print("Could not find current world pointer!");
-        anyScanFailed = true;
+        version = "ERROR";
+        return;
     } else {
-        var relPos = (int)(ptr.ToInt64() - page.BaseAddress.ToInt64() + 4);
+        var relPos = (int)(ptr.ToInt64() - exe.BaseAddress.ToInt64() + 4);
         vars.watchers.Add(new MemoryWatcher<int>(new DeepPointer(
-            game.ReadValue<int>(ptr) + relPos, 0x0, 0x18
+            game.ReadValue<int>(ptr) + relPos, 0x0, NAME_OFFSET
         )){ Name = "world_name" });
     }
 #endregion
@@ -376,7 +312,7 @@ init {
             "C7 44 24 20" + pattern.Item1   // mov [rsp+20],000001F0
         ));
         if (ptr != IntPtr.Zero) {
-            var relPos = (int)(ptr.ToInt64() - page.BaseAddress.ToInt64() + 4);
+            var relPos = (int)(ptr.ToInt64() - exe.BaseAddress.ToInt64() + 4);
             vars.watchers.Add(new MemoryWatcher<int>(new DeepPointer(
                 game.ReadValue<int>(ptr) + relPos, 0xF8, pattern.Item2
             )){ Name = "is_loading" });
@@ -385,10 +321,10 @@ init {
     }
     if (!vars.hasWatcher("is_loading")) {
         print("Could not find loading pointer!");
+        version = "ERROR";
     }
 #endregion
 
-#region Missions
     ptr = scanner.Scan(new SigScanTarget(31,
         "88 1D ????????",       // mov [Borderlands3.exe+6A5A794],bl { (0) }
         "E8 ????????",          // call Borderlands3.exe+3DB17A4
@@ -401,61 +337,397 @@ init {
     ));
     if (ptr == IntPtr.Zero) {
         print("Could not find local player pointer!");
-        anyScanFailed = true;
+        version = "ERROR";
     } else {
-        var localPlayer = (int)(
-            game.ReadValue<int>(ptr) + ptr.ToInt64() - page.BaseAddress.ToInt64() + 0xD4
-        );
-        var missionComponentOffset = vars.beforePatch(version, "OAK-PATCHDIESEL0-280")
-                                     ? 0xC48
-                                     : 0xC60;
-        // Playthroughs is the only constant pointer, the rest depend on playthough and the order
-        //  you grabbed missions in
-        vars.watchers.Add(new MemoryWatcher<int>(new DeepPointer(
-            localPlayer, 0x30, missionComponentOffset, 0x1E0
-        )){ Name = "playthrough" });
+        var relPos = (int)(ptr.ToInt64() - exe.BaseAddress.ToInt64() + 4);
+        var localPlayer = (game.ReadValue<int>(ptr) + relPos) + (0x8 * 0x1A);
 
-        vars.createMissionCountPointer = (Func<DeepPointer>)(() => {
-            // In the case where we have an invalid playthrough index (-1), use playthrough 0 so the
-            //  pointer doesn't go out of bounds
-            // Practically, this only happens if when first loading the mission count, we'll always
-            //  get a playthrough update before ever using the pointer, but good to be safe
-            var playthrough = Math.Max(0, vars.watchers["playthrough"].Current);
-            return new DeepPointer(
-                localPlayer,
-                0x30,
-                missionComponentOffset,
-                0x188,
-                0x18 * playthrough + 0x8
-            );
-        });
+        var offsets = new Dictionary<string, int>();
+        var finishedOffsetSearch = false;
 
-        vars.createMissionDataPointer = (Func<int, int, DeepPointer>)((offset1, offset2) => {
-            return new DeepPointer(
-                localPlayer,
-                0x30,
-                missionComponentOffset,
-                0x188,
-                0x18 * vars.watchers["playthrough"].Current,
-                offset1,
-                offset2
+#region Mission Updates
+        // For some reason `Action` won't accept empty returns :/
+        vars.doMissionUpdate = (Func<object>)(() => {
+            vars.newMissions.Clear();
+
+            // If we haven't found all offsets yet, we won't be able to do any more
+            if (!finishedOffsetSearch || !vars.hasWatcher("playthrough")) {
+                return;
+            }
+
+            // If we have an invalid playthrough index, use playthrough 0 so the pointer doesn't
+            //  go out of bounds
+            // When there's no cached value it's set to -1, we do run into this
+            var playthrough = vars.watchers["playthrough"].Current == 1 ? 1 : 0;
+
+            // If playthrough changes we need to update the mission counter pointer
+            if (
+                !vars.hasWatcher("mission_count") || (
+                    vars.watchers["playthrough"].Changed
+                    && vars.watchers["playthrough"].Current != -1
+                )
+            ) {
+                /*
+                Not using `Remove()` because MemoryWatcherList is not a dict, it's a weird list,
+                 where extracting something is O(n) anyway, and throws if it doesn't exist.
+                */
+                ((MemoryWatcherList)vars.watchers).RemoveAll(x => x.Name == "mission_count");
+
+                var missionCountWatcher = new MemoryWatcher<int>(
+                    new DeepPointer(
+                        localPlayer,
+                        offsets["PlayerController"],
+                        offsets["PlayerMissionComponent"],
+                        offsets["MissionPlaythroughs"],
+                        (
+                            offsets["MissionPlaythroughs_ElementSize"] * playthrough
+                            + offsets["MissionList"] + ARRAY_COUNT_OFFSET
+                        )
+                    )
+                ){ Name = "mission_count" };
+
+                // The inital update doesn't trigger change events, so manually set it to something
+                //  invalid and update again to force it
+                missionCountWatcher.Update(game);
+                missionCountWatcher.Current = -1;
+                missionCountWatcher.Update(game);
+
+                vars.watchers.Add(missionCountWatcher);
+            }
+
+            // If the missions pointer/count changes we might have new missions
+            if (!vars.watchers["mission_count"].Changed) {
+                return;
+            }
+            print("Missions changed");
+
+            foreach (var data in vars.SPLIT_MISSION_DATA) {
+                //                                                              .Setting
+                ((MemoryWatcherList)vars.watchers).RemoveAll(x => x.Name == data.Item1);
+            }
+            ((MemoryWatcherList)vars.watchers).RemoveAll(
+                x => x.Name == "Mission_Ep01_ChildrenOfTheVault_C"
             );
+
+            IntPtr missionList;
+            new DeepPointer(
+                localPlayer,
+                offsets["PlayerController"],
+                offsets["PlayerMissionComponent"],
+                offsets["MissionPlaythroughs"],
+                (
+                    offsets["MissionPlaythroughs_ElementSize"] * playthrough
+                    + offsets["MissionList"] + ARRAY_DATA_OFFSET
+                ),
+                0 // Dummy so we don't need to call ReadPointer an extra time
+            ).DerefOffsets(game, out missionList);
+
+            // Just incase this ever becomes an invalid pointer
+            var missionCount = Math.Min(1000, vars.watchers["mission_count"].Current);
+            for (var idx = 0; idx < missionCount; idx++) {
+                var thisMission = missionList + offsets["MissionList_ElementSize"] * idx;
+
+                var missionName = vars.loadFromGNames(
+                    game.ReadValue<int>(
+                        game.ReadPointer(thisMission + offsets["MissionClass"])
+                        + NAME_OFFSET
+                    )
+                );
+                if (missionName == null) {
+                    continue;
+                }
+
+                /*
+                Dectect new missions - we assume anything with the first objective incomplete is.
+
+                This isn't perfect, but it's relatively simple and works for what we need it to.
+                 If we tried tracking what missions we had last update, we'd also need to track what
+                 character you've got selected, which also has side cases like deleting your char
+                 and making a new one with the same save game id, it just gets messy.
+
+                Picking up a mission or loading into an ungeared save will have the first objective
+                 incomplete, so will get picked up by this, while it won't pick up loading into a
+                 save where you've already finished the dlc for the first time.
+                The only side case is loading a save where you picked up one of the missions we
+                 auto start on for the first time, but didn't complete anything.
+                There's no real way to tell the difference between this and loading an ungeared save
+                 though, and you can always just switch the setting off if it becomes a problem.
+                */
+                var firstObjective = game.ReadValue<int>(
+                    game.ReadPointer(
+                        thisMission + offsets["ObjectivesProgress"] + ARRAY_DATA_OFFSET
+                    ) + offsets["ObjectivesProgress_ElementSize"] * 0
+                );
+                if (firstObjective != 0) {
+                    continue;
+                }
+
+                print("Picked up new mission " + missionName);
+                vars.newMissions.Add(missionName);
+
+                if (missionName == "Mission_Ep01_ChildrenOfTheVault_C") {
+                    // Watch the 5th objective specifically
+                    vars.watchers.Add(new MemoryWatcher<int>(
+                        new DeepPointer(
+                            localPlayer,
+                            offsets["PlayerController"],
+                            offsets["PlayerMissionComponent"],
+                            offsets["MissionPlaythroughs"],
+                            (
+                                offsets["MissionPlaythroughs_ElementSize"] * playthrough
+                                + offsets["MissionList"] + ARRAY_DATA_OFFSET
+                            ),
+                            (
+                                offsets["MissionList_ElementSize"] * idx
+                                + offsets["ObjectivesProgress"] + ARRAY_DATA_OFFSET
+                            ),
+                            offsets["ObjectivesProgress_ElementSize"] * (5 - 1)
+                        )
+                    ){ Name = "start_echo" });
+
+                    print("Found starting echo objective");
+                } else {
+                    // bleh
+                    var data = (
+                        (List<Tuple<string, string, string, TimeSpan>>)vars.SPLIT_MISSION_DATA
+                    //                     .Mission
+                    ).FirstOrDefault(x => x.Item2 == missionName);
+
+                    if (data != null) {
+                        //                    .Setting
+                        var settingName = data.Item1;
+
+                        // Watch the active objective set name
+                        vars.watchers.Add(new MemoryWatcher<int>(
+                            new DeepPointer(
+                                localPlayer,
+                                offsets["PlayerController"],
+                                offsets["PlayerMissionComponent"],
+                                offsets["MissionPlaythroughs"],
+                                (
+                                    offsets["MissionPlaythroughs_ElementSize"] * playthrough
+                                    + offsets["MissionList"] + ARRAY_DATA_OFFSET
+                                ),
+                                (
+                                    offsets["MissionList_ElementSize"] * idx
+                                    + offsets["ActiveObjectiveSet"]
+                                ),
+                                NAME_OFFSET
+                            )
+                        ){ Name = settingName });
+                        print("Found " + settingName + " objective set");
+                    }
+                }
+            }
+            return;
         });
-    }
 #endregion
 
-    if (version != "Unknown" && anyScanFailed) {
-        version = "Unstable " + version;
+#region Offset Searching
+        vars.cts = new CancellationTokenSource();
+        System.Threading.Tasks.Task.Run((Func<System.Threading.Tasks.Task<object>>)(async () => {
+            try {
+                var findPropertyOffset = (Func<IntPtr, string, IntPtr>)((cls, name) => {
+                    for (
+                        ;
+                        cls != IntPtr.Zero;
+                        cls = game.ReadPointer(cls + SUPERFIELD_OFFSET)
+                    ) {
+                        // Don't want to check too much, only here is probably a good middle ground
+                        vars.cts.Token.ThrowIfCancellationRequested();
+
+                        for (
+                            IntPtr prop = game.ReadPointer(cls + CHILDREN_OFFSET);
+                            prop != IntPtr.Zero;
+                            prop = game.ReadPointer(prop + NEXT_OFFSET)
+                        ) {
+                            var propName = vars.loadFromGNames(
+                                game.ReadValue<int>(prop + NAME_OFFSET)
+                            );
+                            if (propName == name) {
+                                var offset = game.ReadValue<int>(prop + OFFSET_INTERNAL_OFFSET);
+                                print(
+                                    "Found property '"
+                                    + name
+                                    + "' at offset 0x"
+                                    + offset.ToString("X")
+                                );
+
+                                offsets[name] = offset;
+                                return prop;
+                            }
+                        }
+                    }
+
+                    print("Couldn't find property '" + name + "'!");
+                    return IntPtr.Zero;
+                });
+
+                var waitForPointer = (Func<DeepPointer, System.Threading.Tasks.Task<IntPtr>>)(
+                    async (deepPtr) => {
+                        IntPtr dest;
+                        while (true) {
+                            // Avoid a weird ToC/ToU that no one else seems to run into
+                            try {
+                                if (deepPtr.DerefOffsets(game, out dest)) {
+                                    return game.ReadPointer(dest);
+                                }
+                            } catch (ArgumentException) { continue; }
+
+                            await System.Threading.Tasks.Task.Delay(
+                                500, vars.cts.Token
+                            ).ConfigureAwait(true);
+                            vars.cts.Token.ThrowIfCancellationRequested();
+                        }
+                    }
+                );
+
+                // This isn't populated right on game launch, need to wait a little
+                print("Waiting for local player class");
+                var localPlayerClass = await waitForPointer(new DeepPointer(
+                    localPlayer,
+                    CLASS_OFFSET
+                ));
+
+                var pcProperty = findPropertyOffset(localPlayerClass, "PlayerController");
+                if (pcProperty == IntPtr.Zero) {
+                    return;
+                }
+
+                /*
+                Unfortuantly, the `PropertyClass` field on the `PlayerController` property points to
+                 the base `PlayerController` class, when we need a field on `OakPlayerController`
+                 (which every instance actually put into this slot will be a subclass of).
+                */
+
+                print("Waiting for player controller class");
+                var pcClass = await waitForPointer(new DeepPointer(
+                    localPlayer,
+                    offsets["PlayerController"],
+                    CLASS_OFFSET
+                ));
+
+                print("Found player controller class, continuing to other offsets");
+
+                // We can miss these two, doesn't really matter
+                findPropertyOffset(pcClass, "TimePlayedSeconds");
+                findPropertyOffset(pcClass, "TimePlayedSecondsLoadedFromSaveGame");
+
+                // Going to assume that if we can find the property, it's fields are valid
+
+                var missionComponentProperty = findPropertyOffset(
+                    pcClass, "PlayerMissionComponent"
+                );
+                if (missionComponentProperty == IntPtr.Zero) {
+                    return;
+                }
+                var missionComponentClass = game.ReadPointer(
+                    missionComponentProperty + PROPERTY_CLASS_OFFSET
+                );
+
+                if (
+                    findPropertyOffset(
+                        missionComponentClass, "CachedPlaythroughIndex"
+                    ) == IntPtr.Zero
+                ) {
+                    return;
+                };
+
+                var playthroughsProperty = findPropertyOffset(
+                    missionComponentClass, "MissionPlaythroughs"
+                );
+                if (playthroughsProperty == IntPtr.Zero) {
+                    return;
+                }
+                var playthroughsInnerProperty = game.ReadPointer(
+                    playthroughsProperty + INNER_PROPERTY_OFFSET
+                );
+                offsets["MissionPlaythroughs_ElementSize"] = game.ReadValue<int>(
+                    playthroughsInnerProperty + ELEMENT_SIZE_OFFSET
+                );
+
+                var missionListProperty = findPropertyOffset(
+                    game.ReadPointer(playthroughsInnerProperty + PROPERTY_STRUCT_OFFSET),
+                    "MissionList"
+                );
+                if (missionListProperty == IntPtr.Zero) {
+                    return;
+                }
+                var missionListInnerProperty = game.ReadPointer(
+                    missionListProperty + INNER_PROPERTY_OFFSET
+                );
+                offsets["MissionList_ElementSize"] = game.ReadValue<int>(
+                    missionListInnerProperty + ELEMENT_SIZE_OFFSET
+                );
+
+                var missionEntryStruct = game.ReadPointer(
+                    missionListInnerProperty + PROPERTY_STRUCT_OFFSET
+                );
+
+                if (findPropertyOffset(missionEntryStruct, "MissionClass") == IntPtr.Zero) {
+                    return;
+                }
+                if (findPropertyOffset(missionEntryStruct, "ActiveObjectiveSet") == IntPtr.Zero) {
+                    return;
+                }
+
+                var objectivesProgressProperty = findPropertyOffset(
+                    missionEntryStruct, "ObjectivesProgress"
+                );
+                if (objectivesProgressProperty == IntPtr.Zero) {
+                    return;
+                }
+                var objectivesProgressInnerProperty = game.ReadPointer(
+                    objectivesProgressProperty + INNER_PROPERTY_OFFSET
+                );
+
+                offsets["ObjectivesProgress_ElementSize"] = game.ReadValue<int>(
+                    objectivesProgressInnerProperty + ELEMENT_SIZE_OFFSET
+                );
+
+                vars.watchers.Add(new MemoryWatcher<int>(new DeepPointer(
+                    localPlayer,
+                    offsets["PlayerController"],
+                    offsets["PlayerMissionComponent"],
+                    offsets["CachedPlaythroughIndex"]
+                )){ Name = "playthrough" });
+
+                vars.watchers.Add(new MemoryWatcher<int>(new DeepPointer(
+                    localPlayer,
+                    offsets["PlayerController"],
+                    offsets["TimePlayedSeconds"]
+                )){ Name = "char_time" });
+
+                vars.watchers.Add(new MemoryWatcher<int>(new DeepPointer(
+                    localPlayer,
+                    offsets["PlayerController"],
+                    offsets["TimePlayedSecondsLoadedFromSaveGame"]
+                )){ Name = "char_time_save" });
+
+                finishedOffsetSearch = true;
+                print("Found all offsets");
+
+            } catch (Exception ex) {
+                print("Exception in Task: " + ex.ToString());
+            }
+            return;
+        }), vars.cts.Token);
+#endregion
     }
 }
 
 exit {
+    vars.cts.Cancel();
     vars.unknownVersionTimeout = DateTime.MaxValue;
     timer.IsGameTimePaused = true;
 }
 
 update {
     vars.watchers.UpdateAll(game);
+
+    if (vars.doMissionUpdate != null) {
+        vars.doMissionUpdate();
+    }
 
 #region World
     if (vars.hasWatcher("world_name") && vars.loadFromGNames != null) {
@@ -488,100 +760,6 @@ update {
         );
     }
 #endregion
-
-#region Missions
-    if (vars.hasWatcher("playthrough")) {
-        vars.newMissions.Clear();
-
-        var missionsChanged = false;
-        if (vars.hasWatcher("mission_count")) {
-            missionsChanged = vars.watchers["mission_count"].Changed;
-        }
-
-        // If playthrough changes we need to update the mission counter pointer
-        if (
-            !vars.hasWatcher("mission_count")
-            || (vars.watchers["playthrough"].Changed && vars.watchers["playthrough"].Current >= 0)
-        ) {
-            ((MemoryWatcherList)vars.watchers).RemoveAll(x => x.Name == "mission_count");
-            vars.watchers.Add(new MemoryWatcher<int>(
-                vars.createMissionCountPointer()
-            ){ Name = "mission_count" });
-
-            vars.watchers["mission_count"].Update(game);
-            // The inital update doesn't set Changed, hence why we need this extra value
-            missionsChanged = true;
-        }
-
-        // If the missions pointer/count changes we might have new missions
-        if (missionsChanged) {
-            print("Missions changed");
-
-            var CUTSCENE_MISSIONS = new Dictionary<string, string>() {
-                { "Mission_Ep23_TyreenFinalBoss_C", "split_tyreen" },
-                { "Mission_DLC1_Ep07_TheHeist_C", "split_jackpot" },
-                { "EP06_DLC2_C", "split_wedding" },
-                { "Mission_Ep05_Crater_C", "split_bounty" },
-                { "ALI_EP05_C", "split_krieg" }
-            };
-
-            foreach (var name in CUTSCENE_MISSIONS.Values) {
-                ((MemoryWatcherList)vars.watchers).RemoveAll(x => x.Name == name);
-            }
-            ((MemoryWatcherList)vars.watchers).RemoveAll(
-                 x => x.Name == "Mission_Ep01_ChildrenOfTheVault_C"
-            );
-
-            // Just incase this ever becomes an invalid pointer
-            var missionCount = Math.Min(1000, vars.watchers["mission_count"].Current);
-            for (var idx = 0; idx < missionCount; idx++) {
-                var missionName = vars.loadFromGNames(
-                    vars.createMissionDataPointer(0x30 * idx, 0x18).Deref<int>(game)
-                );
-                if (missionName == null) {
-                    continue;
-                }
-
-                /*
-                Dectect new missions - we assume anything with the first objective incomplete is.
-
-                This isn't perfect, but it's relatively simple and works for what we need it to.
-                If we tried tracking what missions we had last update, we'd also need to track what
-                 character you've got selected, which also has side cases like deleting your char
-                 and making a new one with the same save game id, it just gets messy.
-
-                Picking up a mission or loading into an ungeared save will have the first objective
-                 incomplete, so will get picked up by this, while it won't pick up loading into a
-                 save where you've already finished the dlc for the first time.
-                The only side case is loading a save where you picked up one of the missions we
-                 auto start on for the first time, but didn't complete anything.
-                There's no real way to tell the difference between this and loading an ungeared save
-                 though, and you can always just switch the setting off if it becomes a problem.
-                */
-                var firstObjective = vars.createMissionDataPointer(0x30 * idx + 0x10, 0x0);
-                if (firstObjective.Deref<int>(game) == 0) {
-                    print("Picked up new mission " + missionName);
-                    vars.newMissions.Add(missionName);
-                }
-
-                if (missionName == "Mission_Ep01_ChildrenOfTheVault_C") {
-                    // Watch the 5th objective (index 4/offset 0x10) specifically
-                    vars.watchers.Add(new MemoryWatcher<int>(
-                        vars.createMissionDataPointer(0x30 * idx + 0x10, 0x10)
-                    ){ Name = "start_echo" });
-                    print("Found starting echo objective");
-                } else if (CUTSCENE_MISSIONS.ContainsKey(missionName)) {
-                    var setting_name = CUTSCENE_MISSIONS[missionName];
-                    // Watch the active objective set name
-                    vars.watchers.Add(new MemoryWatcher<int>(
-                        vars.createMissionDataPointer(0x30 * idx + 0x20, 0x18)
-                    ){ Name = setting_name });
-                    print("Found " + setting_name + " objective set");
-                }
-            }
-        }
-    }
-#endregion
 }
 
 start {
@@ -599,17 +777,9 @@ start {
 
     // Similarly, if we know the world, only start in Sanctuary
     if (vars.currentWorld == null || vars.currentWorld == "Sanctuary3_P") {
-        var MISSION_DATA = new Dictionary<string, string>() {
-            { "Mission_DLC1_Ep01_MeetTimothy_C", "start_jackpot" },
-            { "EP01_DLC2_C", "start_wedding" },
-            { "Mission_Ep01_WestlandWelcome_C", "start_bounty" },
-            { "ALI_EP01_C", "start_krieg" },
-            { "Mission_GearUp_Intro_C", "start_arms_race" }
-        };
-
-        foreach (var missionName in vars.newMissions) {
-            if (MISSION_DATA.ContainsKey(missionName) && settings[MISSION_DATA[missionName]]) {
-                print("Starting due to picking up mission " + missionName.ToString());
+        foreach (var data in vars.START_MISSION_DATA) {
+            if (settings[data.Value] && vars.newMissions.Contains(data.Key)) {
+                print("Starting due to picking up mission " + data.Key.ToString());
                 return true;
             }
         }
@@ -619,6 +789,10 @@ start {
 }
 
 isLoading {
+    if (settings["use_char_time"]) {
+        return true;
+    }
+
     if (
         (vars.hasWatcher("is_loading") && vars.watchers["is_loading"].Current != 0)
         || vars.currentWorld == "MenuMap_P"
@@ -631,6 +805,21 @@ isLoading {
     }
 
     return false;
+}
+
+gameTime {
+    if (!settings["use_char_time"]) {
+        return null;
+    }
+
+    var totalTime = 0;
+    if (vars.hasWatcher("char_time")) {
+        totalTime += vars.watchers["char_time"].Current;
+    }
+    if (vars.hasWatcher("char_time_save")) {
+        totalTime += vars.watchers["char_time_save"].Current;
+    }
+    return totalTime <= 0 ? (TimeSpan?)null : TimeSpan.FromSeconds(totalTime);
 }
 
 split {
@@ -658,33 +847,15 @@ split {
 
 #region Ending Cutscenes
     if (vars.hasWatcher("playthrough") && vars.watchers["playthrough"].Old != -1) {
-        var CUTSCENE_DATA = new List<Tuple<string, string, TimeSpan>>() {
-            new Tuple<string, string, TimeSpan>(
-                "split_tyreen", "Set_TyreenDeadCine_ObjectiveSet", TimeSpan.FromSeconds(2)
-            ),
-            new Tuple<string, string, TimeSpan>(
-                "split_jackpot", "Set_FinalCinematic_ObjectiveSet", TimeSpan.FromSeconds(1)
-            ),
-            new Tuple<string, string, TimeSpan>(
-                "split_wedding", "Set_FinalCredits_ObjectiveSet", TimeSpan.FromSeconds(1)
-            ),
-            new Tuple<string, string, TimeSpan>(
-                "split_bounty", "SET_EndCredits_ObjectiveSet", TimeSpan.FromSeconds(0.1)
-            ),
-            new Tuple<string, string, TimeSpan>(
-                "split_krieg", "SET_OutroCIN_ObjectiveSet", TimeSpan.FromSeconds(1)
-            )
-        };
-
-        foreach (var data in CUTSCENE_DATA) {
-            var setting_name = data.Item1;
-            if (!vars.hasWatcher(setting_name) || !settings[setting_name]) {
+        foreach (var data in vars.SPLIT_MISSION_DATA) {
+            var setting = data.Item1;
+            if (!vars.hasWatcher(setting) || !settings[setting]) {
                 continue;
             }
 
-            var objectiveSet = data.Item2;
-            var delay = data.Item3;
-            var watcher = vars.watchers[setting_name];
+            var objectiveSet = data.Item3;
+            var delay = data.Item4;
+            var watcher = vars.watchers[setting];
 
             if (watcher.Changed && vars.loadFromGNames(watcher.Current) == objectiveSet) {
                 vars.delayedSplitTime = timer.CurrentTime.GameTime + delay;
