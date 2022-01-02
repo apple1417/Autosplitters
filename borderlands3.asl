@@ -159,12 +159,14 @@ init {
         Path.GetDirectoryName(exe.FileName),
         "OakGame", "Binaries", "Win64", "Borderlands3.exe"
     ))) {
-        if (vars.epicProcessTimeout == DateTime.MaxValue) {
-            print("Seem to have hooked the epic launcher process - retrying");
-            vars.epicProcessTimeout = DateTime.Now.AddSeconds(30);
-        } else if (vars.epicProcessTimeout < DateTime.Now) {
+        if (vars.epicProcessTimeout < DateTime.Now) {
             print("Timeout expired; assuming this is actually the game process.");
         } else {
+            if (vars.epicProcessTimeout == DateTime.MaxValue) {
+                print("Seem to have hooked the epic launcher process - retrying");
+                vars.epicProcessTimeout = DateTime.Now.AddSeconds(30);
+            }
+
             var allComponents = timer.Layout.Components;
             // Grab the autosplitter from splits
             if (timer.Run.AutoSplitter != null && timer.Run.AutoSplitter.Component != null) {
