@@ -24,7 +24,8 @@ This grabs object names as part of it's logic, might be a good example to work f
 - Splits for world transitions
 - Ending splits for defeating the final boss in both the main and dlc campaigns
 
-### serious_sam_4_bfe.asl
+### serious_sam_4.asl
+Supports both SS4 and Siberian Mayhem
 - Starts upon loading the first level
 - Removes loading screens, including the continue screen when the map has loaded
 - Splits for world transitions

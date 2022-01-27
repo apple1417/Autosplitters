@@ -1,4 +1,5 @@
 state("Sam4") {}
+state("SamSM") {}
 
 startup {
     settings.Add("no_cheats", true, "Don't start the run if cheats are active");
@@ -18,16 +19,16 @@ init {
     vars.igt = null;
     vars.cheats = null;
 
-    var page = modules.First();
+    var exe = modules.First();
 
     var logPath = Path.GetFullPath(Path.Combine(
-        Path.GetDirectoryName(page.FileName), "..", "..", "Log", "Sam4.log")
-    );
+        Path.GetDirectoryName(exe.FileName), "..", "..", "Log", game.ProcessName + ".log"
+    ));
     print("Using log path: '" + logPath + "'");
     vars.reader = new StreamReader(new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite));
     vars.reader.ReadToEnd();
 
-    var scanner = new SignatureScanner(game, page.BaseAddress, page.ModuleMemorySize);
+    var scanner = new SignatureScanner(game, exe.BaseAddress, exe.ModuleMemorySize);
     var ptr = IntPtr.Zero;
 
     ptr = scanner.Scan(new SigScanTarget(3,
@@ -38,7 +39,7 @@ init {
     if (ptr == IntPtr.Zero) {
         print("Could not find main loading pointer!");
     } else {
-        var relPos = (int)((long)ptr - (long)page.BaseAddress) + 4;
+        var relPos = (int)((long)ptr - (long)exe.BaseAddress) + 4;
         vars.isLoadingMain = new MemoryWatcher<int>(new DeepPointer(
             game.ReadValue<int>(ptr) + relPos, 0x10, 0x208
         ));
@@ -56,7 +57,7 @@ init {
     if (ptr == IntPtr.Zero) {
         print("Could not find secondary loading pointer!");
     } else {
-        var relPos = (int)((long)ptr - (long)page.BaseAddress) + 4;
+        var relPos = (int)((long)ptr - (long)exe.BaseAddress) + 4;
         vars.isLoadingSecondary = new MemoryWatcher<int>(new DeepPointer(
             game.ReadValue<int>(ptr) + relPos, 0x50
         ));
@@ -70,7 +71,7 @@ init {
     if (ptr == IntPtr.Zero) {
         print("Could not find igt pointer!");
     } else {
-        var relPos = (int)((long)ptr - (long)page.BaseAddress) + 4;
+        var relPos = (int)((long)ptr - (long)exe.BaseAddress) + 4;
         vars.igt = new MemoryWatcher<int>(new DeepPointer(
             game.ReadValue<int>(ptr) + relPos, 0x10, 0x238, 0x1e0, 0x68
         ));
@@ -85,7 +86,7 @@ init {
     if (ptr == IntPtr.Zero) {
         print("Could not find cheats pointer!");
     } else {
-        var relPos = (int)((long)ptr - (long)page.BaseAddress) + 4;
+        var relPos = (int)((long)ptr - (long)exe.BaseAddress) + 4;
         vars.cheats = new MemoryWatcher<int>(new DeepPointer(
             game.ReadValue<int>(ptr) + relPos
         ));
@@ -135,13 +136,14 @@ start {
     var match = new System.Text.RegularExpressions.Regex(@"^Started simulation on '(.*?)'").Match(vars.line);
     if (match.Success) {
         string world = match.Groups[1].Value;
-        
+
         // Cheats
         if (settings["no_cheats"] && vars.cheats != null && vars.cheats.Current != 0) {
             print("Not starting the run because of cheats");
             return false;
         // Wrong starting world
         } else if (world != "Content/SeriousSam4/Levels/01_PB/00_Prolepsis.wld"
+                   && world != "Content/SeriousSamSM/Levels/01_SM/01_Refinery.wld"
                    && !settings["start_everywhere"]) {
             print("Not starting run due to entering wrong world");
         // Actually start run
