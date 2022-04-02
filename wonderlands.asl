@@ -15,6 +15,11 @@ startup {
     });
 
     vars.lastGameWorld = null;
+
+    vars.LOADING_WORLDS = new List<string>() {
+        "PreviewSceneWorld",
+        "Loader"
+    };
 }
 
 onStart {
@@ -135,15 +140,15 @@ update {
 
 #region World
     if (vars.hasWatcher("world_name") && vars.loadFromGNames != null) {
+        var oldWorld = vars.currentWorld;
         vars.currentWorld = vars.loadFromGNames(vars.watchers["world_name"].Current);
 
-        if (vars.watchers["world_name"].Changed) {
-            print(
-                "Map changed from "
-                + vars.loadFromGNames(vars.watchers["world_name"].Old)
-                + " to "
-                + vars.currentWorld
-            );
+        if (
+            vars.watchers["world_name"].Changed
+            && !vars.LOADING_WORLDS.Contains(oldWorld)
+            && !vars.LOADING_WORLDS.Contains(vars.currentWorld)
+        ) {
+            print("Map changed from " + oldWorld + " to " + vars.currentWorld);
         }
     } else {
         vars.currentWorld = null;
@@ -181,7 +186,8 @@ split {
 #region Level Transitions
     if (
         settings["split_levels"]
-        && vars.currentWorld != null && vars.currentWorld != "MenuMap_P"
+        && vars.currentWorld != null
+        && vars.currentWorld != "MenuMap_P" && !vars.LOADING_WORLDS.Contains(vars.currentWorld)
         && vars.currentWorld != vars.lastGameWorld
     ) {
         var last = vars.lastGameWorld;
