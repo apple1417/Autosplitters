@@ -9,6 +9,8 @@ startup {
 
     timer.IsGameTimePaused = true;
 
+    vars.epicProcessTimeout = DateTime.MaxValue;
+
     vars.watchers = new MemoryWatcherList();
     vars.hasWatcher = (Func<string, bool>)(name => {
         return ((MemoryWatcherList)vars.watchers).Any(x => x.Name == name);
@@ -28,6 +30,57 @@ onStart {
 
 init {
     var exe = modules.First();
+
+#region Epic Process Fix
+    /*
+    Launching the game on Epic first creates a "launcher" process, which starts the actual game, but
+     still sticks around. Both processes are called "Wonderlands", but only the second one is valid
+     and has the pointers we need.
+    Livesplit will hook the last launched processed - so when you launch it after the game, it works
+     fine. However, if it's running before launching the game, it hooks onto the launcher while it's
+     still the only process, and cause it doesn't quit we get stuck with it.
+    To fix this, we use reflection to set the hooked game back to null (it's private), then exit and
+     let livesplit try hook again next tick - eventually it will pick the newer, correct, process.
+    We'll do this for 30s max, and assume we're actually the game then.
+
+    Launcher process is `<wl>\Wonderlands.exe`
+    Actual game is `<wl>\OakGame\Binaries\Win64\Wonderlands.exe`
+    */
+    if (File.Exists(Path.Combine(
+        Path.GetDirectoryName(exe.FileName),
+        "OakGame", "Binaries", "Win64", "Wonderlands.exe"
+    ))) {
+        if (vars.epicProcessTimeout < DateTime.Now) {
+            print("Timeout expired; assuming this is actually the game process.");
+        } else {
+            if (vars.epicProcessTimeout == DateTime.MaxValue) {
+                print("Seem to have hooked the epic launcher process - retrying");
+                vars.epicProcessTimeout = DateTime.Now.AddSeconds(30);
+            }
+
+            var allComponents = timer.Layout.Components;
+            // Grab the autosplitter from splits
+            if (timer.Run.AutoSplitter != null && timer.Run.AutoSplitter.Component != null) {
+                allComponents = allComponents.Append(timer.Run.AutoSplitter.Component);
+            }
+            foreach (var component in allComponents) {
+                var type = component.GetType();
+                if (type.Name == "ASLComponent") {
+                    // Could also check script path, but renaming the script breaks that, and
+                    //  running multiple autosplitters at once is already just asking for problems
+                    var script = type.GetProperty("Script").GetValue(component);
+                    script.GetType().GetField(
+                        "_game",
+                        BindingFlags.NonPublic | BindingFlags.Instance
+                    ).SetValue(script, null);
+                }
+            }
+            return;
+        }
+    } else {
+        vars.epicProcessTimeout = DateTime.MaxValue;
+    }
+#endregion
 
     var scanner = new SignatureScanner(game, exe.BaseAddress, exe.ModuleMemorySize);
     var ptr = IntPtr.Zero;
