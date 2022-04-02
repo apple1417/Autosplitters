@@ -64,3 +64,7 @@ For Talos Principle All Achievements runs
 - Overwrites your first 5 text components with your player speed
 
 Only works on 326/32/unmodded and 440/64/modded - couldn't be bothered to write up sigscans :)
+
+### wonderlands.asl
+- Removes loading screens / main menu
+- Splits on level transitions
