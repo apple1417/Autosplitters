@@ -2,20 +2,25 @@ state("Wonderlands") {}
 
 startup {
 #region Settings
+    settings.Add("start_header", true, "Start the run on ...");
+    settings.Add("start_enter_snoring", true, "Loading into Snoring Valley", "start_header");
     settings.Add("split_header", true, "Split on ...");
     settings.Add("split_levels", false, "Level transitions", "split_header");
     settings.Add("split_levels_dont_end", true, "Unless doing so would end the run", "split_levels");
+    settings.Add("split_dragon_lord", true, "Killing the Dragon Lord", "split_header");
 #endregion
 
     timer.IsGameTimePaused = true;
 
     vars.epicProcessTimeout = DateTime.MaxValue;
+    vars.cts = new CancellationTokenSource();
 
     vars.watchers = new MemoryWatcherList();
     vars.hasWatcher = (Func<string, bool>)(name => {
         return ((MemoryWatcherList)vars.watchers).Any(x => x.Name == name);
     });
 
+    vars.delayedSplitTime = TimeSpan.Zero;
     vars.lastGameWorld = null;
 
     vars.LOADING_WORLDS = new List<string>() {
@@ -24,7 +29,12 @@ startup {
     };
 }
 
+shutdown {
+    vars.cts.Cancel();
+}
+
 onStart {
+    vars.delayedSplitTime = TimeSpan.Zero;
     vars.lastGameWorld = null;
 }
 
@@ -87,13 +97,39 @@ init {
 
     vars.watchers.Clear();
 
+    vars.doMissionUpdate = null;
     vars.loadFromGNames = null;
 
     vars.currentWorld = null;
 
 #region UE Constants
     // UObject
+    const int CLASS_OFFSET = 0x10;
     const int NAME_OFFSET = 0x18;
+
+    // UField
+    const int NEXT_OFFSET = 0x28;
+
+    // UStruct
+    const int SUPERFIELD_OFFSET = 0x30;
+    const int CHILDREN_OFFSET = 0x38;
+
+    // UProperty
+    const int ELEMENT_SIZE_OFFSET = 0x34;
+    const int OFFSET_INTERNAL_OFFSET = 0x44;
+
+    // UObjectProperty
+    const int PROPERTY_CLASS_OFFSET = 0x70;
+
+    // UClassProperty
+    const int INNER_PROPERTY_OFFSET = 0x70;
+
+    // UStructProperty
+    const int PROPERTY_STRUCT_OFFSET = 0x70;
+
+    // FArray
+    const int ARRAY_DATA_OFFSET = 0x0;
+    const int ARRAY_COUNT_OFFSET = 0x8;
 
     // GNames
     const int GNAMES_CHUNK_SIZE = 0x4000;
@@ -182,6 +218,339 @@ init {
         )){ Name = "is_loading" });
     }
 #endregion
+
+    ptr = scanner.Scan(new SigScanTarget(31,
+        "88 1D ????????",       // mov [Borderlands3.exe+6A5A794],bl { (0) }
+        "E8 ????????",          // call Borderlands3.exe+3DB17A4
+        "48 8D 0D ????????",    // lea rcx,[Borderlands3.exe+6A5A798] { (-2147481615) }
+        "E8 ????????",          // call Borderlands3.exe+3DB1974
+        "48 8B 5C 24 20",       // mov rbx,[rsp+20]
+        "48 8D 05 ????????",    // lea rax,[Borderlands3.exe+6A5A6A0] { (0) }   <----
+        "48 83 C4 28",          // add rsp,28 { 40 }
+        "C3"                    // ret
+    ));
+    if (ptr == IntPtr.Zero) {
+        print("Could not find local player pointer!");
+        version = "ERROR";
+    } else {
+        var relPos = (int)(ptr.ToInt64() - exe.BaseAddress.ToInt64() + 4);
+        var localPlayer = (game.ReadValue<int>(ptr) + relPos) + (0x8 * 0x1A);
+
+        var offsets = new Dictionary<string, int>();
+        var finishedOffsetSearch = false;
+
+#region Mission Updates
+        // For some reason `Action` won't accept empty returns :/
+        vars.doMissionUpdate = (Func<object>)(() => {
+            // If we haven't found all offsets yet, we won't be able to do any more
+            if (!finishedOffsetSearch || !vars.hasWatcher("playthrough")) {
+                return;
+            }
+
+            // If we have an invalid playthrough index, use playthrough 0 so the pointer doesn't
+            //  go out of bounds
+            // When there's no cached value it's set to -1, we do run into this
+            var playthrough = vars.watchers["playthrough"].Current == 1 ? 1 : 0;
+
+            // If playthrough changes we need to update the mission counter pointer
+            if (
+                !vars.hasWatcher("mission_count") || (
+                    vars.watchers["playthrough"].Changed
+                    && vars.watchers["playthrough"].Current != -1
+                )
+            ) {
+                /*
+                Not using `Remove()` because MemoryWatcherList is not a dict, it's a weird list,
+                 where extracting something is O(n) anyway, and throws if it doesn't exist.
+                */
+                ((MemoryWatcherList)vars.watchers).RemoveAll(x => x.Name == "mission_count");
+
+                var missionCountWatcher = new MemoryWatcher<int>(
+                    new DeepPointer(
+                        localPlayer,
+                        offsets["PlayerController"],
+                        offsets["PlayerMissionComponent"],
+                        offsets["MissionPlaythroughs"],
+                        (
+                            offsets["MissionPlaythroughs_ElementSize"] * playthrough
+                            + offsets["MissionList"] + ARRAY_COUNT_OFFSET
+                        )
+                    )
+                ){ Name = "mission_count" };
+
+                // The inital update doesn't trigger change events, so manually set it to something
+                //  invalid and update again to force it
+                missionCountWatcher.Update(game);
+                missionCountWatcher.Current = -1;
+                missionCountWatcher.Update(game);
+
+                vars.watchers.Add(missionCountWatcher);
+            }
+
+            // If the missions pointer/count changes we might have new missions
+            if (!vars.watchers["mission_count"].Changed) {
+                return;
+            }
+            print("Missions changed");
+
+            ((MemoryWatcherList)vars.watchers).RemoveAll(
+                x => x.Name == "start_enter_snoring" || x.Name == "split_dragon_lord"
+            );
+
+            IntPtr missionList;
+            new DeepPointer(
+                localPlayer,
+                offsets["PlayerController"],
+                offsets["PlayerMissionComponent"],
+                offsets["MissionPlaythroughs"],
+                (
+                    offsets["MissionPlaythroughs_ElementSize"] * playthrough
+                    + offsets["MissionList"] + ARRAY_DATA_OFFSET
+                ),
+                0 // Dummy so we don't need to call ReadPointer an extra time
+            ).DerefOffsets(game, out missionList);
+
+            // Just incase this ever becomes an invalid pointer
+            var missionCount = Math.Min(1000, vars.watchers["mission_count"].Current);
+            for (var idx = 0; idx < missionCount; idx++) {
+                var thisMission = missionList + offsets["MissionList_ElementSize"] * idx;
+
+                var missionName = vars.loadFromGNames(
+                    game.ReadValue<int>(
+                        game.ReadPointer(thisMission + offsets["MissionClass"])
+                        + NAME_OFFSET
+                    )
+                );
+                if (missionName == null) {
+                    continue;
+                }
+
+                if (missionName == "Mission_Plot00_C") {
+                    var settingName = "start_enter_snoring";
+
+                    // Watch the 1st objective specifically
+                    vars.watchers.Add(new MemoryWatcher<int>(
+                        new DeepPointer(
+                            localPlayer,
+                            offsets["PlayerController"],
+                            offsets["PlayerMissionComponent"],
+                            offsets["MissionPlaythroughs"],
+                            (
+                                offsets["MissionPlaythroughs_ElementSize"] * playthrough
+                                + offsets["MissionList"] + ARRAY_DATA_OFFSET
+                            ),
+                            (
+                                offsets["MissionList_ElementSize"] * idx
+                                + offsets["ObjectivesProgress"] + ARRAY_DATA_OFFSET
+                            ),
+                            offsets["ObjectivesProgress_ElementSize"] * (1 - 1)
+                        )
+                    ){ Name = settingName });
+
+                    print("Found " + settingName + " objective");
+                } else if (missionName == "Mission_Plot10_C"){
+                    var settingName = "split_dragon_lord";
+
+                    // Watch the active objective set name
+                    vars.watchers.Add(new MemoryWatcher<int>(
+                        new DeepPointer(
+                            localPlayer,
+                            offsets["PlayerController"],
+                            offsets["PlayerMissionComponent"],
+                            offsets["MissionPlaythroughs"],
+                            (
+                                offsets["MissionPlaythroughs_ElementSize"] * playthrough
+                                + offsets["MissionList"] + ARRAY_DATA_OFFSET
+                            ),
+                            (
+                                offsets["MissionList_ElementSize"] * idx
+                                + offsets["ActiveObjectiveSet"]
+                            ),
+                            NAME_OFFSET
+                        )
+                    ){ Name = settingName });
+                    print("Found " + settingName + " objective set");
+                }
+            }
+            return;
+        });
+#endregion
+
+#region Offset Searching
+        vars.cts = new CancellationTokenSource();
+        System.Threading.Tasks.Task.Run((Func<System.Threading.Tasks.Task<object>>)(async () => {
+            try {
+                var findPropertyOffset = (Func<IntPtr, string, IntPtr>)((cls, name) => {
+                    for (
+                        ;
+                        cls != IntPtr.Zero;
+                        cls = game.ReadPointer(cls + SUPERFIELD_OFFSET)
+                    ) {
+                        // Don't want to check too much, only here is probably a good middle ground
+                        vars.cts.Token.ThrowIfCancellationRequested();
+
+                        for (
+                            IntPtr prop = game.ReadPointer(cls + CHILDREN_OFFSET);
+                            prop != IntPtr.Zero;
+                            prop = game.ReadPointer(prop + NEXT_OFFSET)
+                        ) {
+                            var propName = vars.loadFromGNames(
+                                game.ReadValue<int>(prop + NAME_OFFSET)
+                            );
+                            if (propName == name) {
+                                var offset = game.ReadValue<int>(prop + OFFSET_INTERNAL_OFFSET);
+                                print(
+                                    "Found property '"
+                                    + name
+                                    + "' at offset 0x"
+                                    + offset.ToString("X")
+                                );
+
+                                offsets[name] = offset;
+                                return prop;
+                            }
+                        }
+                    }
+
+                    print("Couldn't find property '" + name + "'!");
+                    return IntPtr.Zero;
+                });
+
+                var waitForPointer = (Func<DeepPointer, System.Threading.Tasks.Task<IntPtr>>)(
+                    async (deepPtr) => {
+                        IntPtr dest;
+                        while (true) {
+                            // Avoid a weird ToC/ToU that no one else seems to run into
+                            try {
+                                if (deepPtr.DerefOffsets(game, out dest)) {
+                                    return game.ReadPointer(dest);
+                                }
+                            } catch (ArgumentException) { continue; }
+
+                            await System.Threading.Tasks.Task.Delay(
+                                500, vars.cts.Token
+                            ).ConfigureAwait(true);
+                            vars.cts.Token.ThrowIfCancellationRequested();
+                        }
+                    }
+                );
+
+                // This isn't populated right on game launch, need to wait a little
+                print("Waiting for local player class");
+                var localPlayerClass = await waitForPointer(new DeepPointer(
+                    localPlayer,
+                    CLASS_OFFSET
+                ));
+
+                var pcProperty = findPropertyOffset(localPlayerClass, "PlayerController");
+                if (pcProperty == IntPtr.Zero) {
+                    return;
+                }
+
+                /*
+                Unfortuantly, the `PropertyClass` field on the `PlayerController` property points to
+                 the base `PlayerController` class, when we need a field on `OakPlayerController`
+                 (which every instance actually put into this slot will be a subclass of).
+                */
+
+                print("Waiting for player controller class");
+                var pcClass = await waitForPointer(new DeepPointer(
+                    localPlayer,
+                    offsets["PlayerController"],
+                    CLASS_OFFSET
+                ));
+
+                print("Found player controller class, continuing to other offsets");
+
+                // Going to assume that if we can find the property, it's fields are valid
+
+                var missionComponentProperty = findPropertyOffset(
+                    pcClass, "PlayerMissionComponent"
+                );
+                if (missionComponentProperty == IntPtr.Zero) {
+                    return;
+                }
+                var missionComponentClass = game.ReadPointer(
+                    missionComponentProperty + PROPERTY_CLASS_OFFSET
+                );
+
+                if (
+                    findPropertyOffset(
+                        missionComponentClass, "CachedPlaythroughIndex"
+                    ) == IntPtr.Zero
+                ) {
+                    return;
+                };
+
+                var playthroughsProperty = findPropertyOffset(
+                    missionComponentClass, "MissionPlaythroughs"
+                );
+                if (playthroughsProperty == IntPtr.Zero) {
+                    return;
+                }
+                var playthroughsInnerProperty = game.ReadPointer(
+                    playthroughsProperty + INNER_PROPERTY_OFFSET
+                );
+                offsets["MissionPlaythroughs_ElementSize"] = game.ReadValue<int>(
+                    playthroughsInnerProperty + ELEMENT_SIZE_OFFSET
+                );
+
+                var missionListProperty = findPropertyOffset(
+                    game.ReadPointer(playthroughsInnerProperty + PROPERTY_STRUCT_OFFSET),
+                    "MissionList"
+                );
+                if (missionListProperty == IntPtr.Zero) {
+                    return;
+                }
+                var missionListInnerProperty = game.ReadPointer(
+                    missionListProperty + INNER_PROPERTY_OFFSET
+                );
+                offsets["MissionList_ElementSize"] = game.ReadValue<int>(
+                    missionListInnerProperty + ELEMENT_SIZE_OFFSET
+                );
+
+                var missionEntryStruct = game.ReadPointer(
+                    missionListInnerProperty + PROPERTY_STRUCT_OFFSET
+                );
+
+                if (findPropertyOffset(missionEntryStruct, "MissionClass") == IntPtr.Zero) {
+                    return;
+                }
+                if (findPropertyOffset(missionEntryStruct, "ActiveObjectiveSet") == IntPtr.Zero) {
+                    return;
+                }
+
+                var objectivesProgressProperty = findPropertyOffset(
+                    missionEntryStruct, "ObjectivesProgress"
+                );
+                if (objectivesProgressProperty == IntPtr.Zero) {
+                    return;
+                }
+                var objectivesProgressInnerProperty = game.ReadPointer(
+                    objectivesProgressProperty + INNER_PROPERTY_OFFSET
+                );
+
+                offsets["ObjectivesProgress_ElementSize"] = game.ReadValue<int>(
+                    objectivesProgressInnerProperty + ELEMENT_SIZE_OFFSET
+                );
+
+                vars.watchers.Add(new MemoryWatcher<int>(new DeepPointer(
+                    localPlayer,
+                    offsets["PlayerController"],
+                    offsets["PlayerMissionComponent"],
+                    offsets["CachedPlaythroughIndex"]
+                )){ Name = "playthrough" });
+
+                finishedOffsetSearch = true;
+                print("Found all offsets");
+
+            } catch (Exception ex) {
+                print("Exception in Task: " + ex.ToString());
+            }
+            return;
+        }), vars.cts.Token);
+#endregion
+    }
 }
 
 exit {
@@ -190,6 +559,10 @@ exit {
 
 update {
     vars.watchers.UpdateAll(game);
+
+    if (vars.doMissionUpdate != null) {
+        vars.doMissionUpdate();
+    }
 
 #region World
     if (vars.hasWatcher("world_name") && vars.loadFromGNames != null) {
@@ -218,6 +591,22 @@ update {
         );
     }
 #endregion
+}
+
+start {
+    if (
+        settings["start_enter_snoring"] && vars.hasWatcher("start_enter_snoring")
+        // Make sure not to fire when first loading in on a character
+        && vars.hasWatcher("playthrough") && vars.watchers["playthrough"].Old != -1
+        // If the objective changed to active
+        && vars.watchers["start_enter_snoring"].Changed
+        && vars.watchers["start_enter_snoring"].Current == 1
+        // If we don't have a world pointer ignore this, otherwise only start in Snoring Valley
+        && (vars.currentWorld == null || vars.currentWorld == "Tutorial_P")
+    ) {
+        print("Starting due to entering Snoring Valley echo.");
+        return true;
+    }
 }
 
 isLoading {
@@ -258,6 +647,33 @@ split {
         }
     }
 #endregion
+
+#region Ending Cutscenes
+    if (
+        // Make sure not to fire when first loading in on a character
+        vars.hasWatcher("playthrough") && vars.watchers["playthrough"].Old != -1
+        && vars.hasWatcher("split_dragon_lord") && settings["split_dragon_lord"]
+        // If we don't have a world pointer ignore this, otherwise only end in the Fearamid
+        && (vars.currentWorld == null || vars.currentWorld == "PyramidBoss_P")
+    ) {
+        var objectiveSet = "Set_RessurectionCutscene_ObjectiveSet";
+        var watcher = vars.watchers["split_dragon_lord"];
+
+        if (watcher.Changed && vars.loadFromGNames(watcher.Current) == objectiveSet) {
+            // 0.920 found mostly though experimentation, seems to line up most of the time at 60fps
+            // BL3 uses nice round numbers, why'd they have to mess it up for this
+            vars.delayedSplitTime = timer.CurrentTime.GameTime + TimeSpan.FromSeconds(0.920);
+        }
+    }
+#endregion
+
+    if (
+        vars.delayedSplitTime != TimeSpan.Zero
+        && vars.delayedSplitTime < timer.CurrentTime.GameTime
+    ) {
+        vars.delayedSplitTime = TimeSpan.Zero;
+        return true;
+    }
 
     return false;
 }
