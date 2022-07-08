@@ -439,34 +439,6 @@ init {
                     continue;
                 }
 
-                /*
-                Dectect new missions - we assume anything with the first objective incomplete is.
-
-                This isn't perfect, but it's relatively simple and works for what we need it to.
-                 If we tried tracking what missions we had last update, we'd also need to track what
-                 character you've got selected, which also has side cases like deleting your char
-                 and making a new one with the same save game id, it just gets messy.
-
-                Picking up a mission or loading into an ungeared save will have the first objective
-                 incomplete, so will get picked up by this, while it won't pick up loading into a
-                 save where you've already finished the dlc for the first time.
-                The only side case is loading a save where you picked up one of the missions we
-                 auto start on for the first time, but didn't complete anything.
-                There's no real way to tell the difference between this and loading an ungeared save
-                 though, and you can always just switch the setting off if it becomes a problem.
-                */
-                var firstObjective = game.ReadValue<int>(
-                    game.ReadPointer(
-                        thisMission + offsets["ObjectivesProgress"] + ARRAY_DATA_OFFSET
-                    ) + offsets["ObjectivesProgress_ElementSize"] * 0
-                );
-                if (firstObjective != 0) {
-                    continue;
-                }
-
-                print("Picked up new mission " + missionName);
-                vars.newMissions.Add(missionName);
-
                 if (missionName == "Mission_Ep01_ChildrenOfTheVault_C") {
                     // Watch the 5th objective specifically
                     vars.watchers.Add(new MemoryWatcher<int>(
@@ -519,6 +491,32 @@ init {
                         ){ Name = settingName });
                         print("Found " + settingName + " objective set");
                     }
+                }
+
+                /*
+                Dectect new missions - we assume anything with the first objective incomplete is.
+
+                This isn't perfect, but it's relatively simple and works for what we need it to.
+                 If we tried tracking what missions we had last update, we'd also need to track what
+                 character you've got selected, which also has side cases like deleting your char
+                 and making a new one with the same save game id, it just gets messy.
+
+                Picking up a mission or loading into an ungeared save will have the first objective
+                 incomplete, so will get picked up by this, while it won't pick up loading into a
+                 save where you've already finished the dlc for the first time.
+                The only side case is loading a save where you picked up one of the missions we
+                 auto start on for the first time, but didn't complete anything.
+                There's no real way to tell the difference between this and loading an ungeared save
+                 though, and you can always just switch the setting off if it becomes a problem.
+                */
+                var firstObjective = game.ReadValue<int>(
+                    game.ReadPointer(
+                        thisMission + offsets["ObjectivesProgress"] + ARRAY_DATA_OFFSET
+                    ) + offsets["ObjectivesProgress_ElementSize"] * 0
+                );
+                if (firstObjective == 0) {
+                    print("Picked up new mission " + missionName);
+                    vars.newMissions.Add(missionName);
                 }
             }
             return;
