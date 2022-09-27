@@ -72,19 +72,30 @@ init {
             "8D 85 30FFFFFF"            // lea eax,[ebp-000000D0]
         ));
         if (ptr == IntPtr.Zero) {
+            // Try old version pointer
+            ptr = engineScanner.Scan(new SigScanTarget(2,
+                "8B 15 ????????",           // mov edx,[Engine._SE_VER_STRING] { (60E53D0C) }
+                "8B 00",                    // mov eax,[eax]
+                "51",                       // push ecx
+                "52"                        // push edx
+            ));
+        }
+
+        if (ptr == IntPtr.Zero) {
             print("Could not find pointers to determine version!");
             version = "Error";
             return false;
         }
 
-        IntPtr versionPtr = new IntPtr(game.ReadValue<int>(new IntPtr(game.ReadValue<int>(ptr))));
-        // Technically this is a string, but we'll just check the first few bytes ("AP_3") as an int
-        int firstValue = game.ReadValue<int>(versionPtr);
-        // ReadValue seems to flip this
-        if (firstValue == 0x335F5041) {
+        string versionStr = game.ReadString(
+            new IntPtr(game.ReadValue<int>(new IntPtr(game.ReadValue<int>(ptr)))),
+            16
+        );
+
+        if (versionStr == "AP_3381") {
             version = "Revolution";
         } else {
-            print("Unknown version, starts with " + firstValue.ToString("X"));
+            print("Unknown version " + versionStr);
             version = "Unknown";
             return false;
         }
@@ -189,6 +200,15 @@ init {
             "C7 05 ???????? 01000000"   // mov [Engine._pSound+1C],00000001
             // push edi
         ));
+        if (ptr == IntPtr.Zero) {
+            // Try old version pointer
+            ptr = engineScanner.Scan(new SigScanTarget(9,
+                "C7 45 FC 00000000",        // mov [ebp-04],00000000
+                "C7 05 ???????? 01000000",  // mov [Engine._pSound+1C],00000001
+                "E8 ????????",              // call Engine.CSoundData::Read_t+13E0
+                "83 C4 08"                  // add esp,08
+            ));
+        }
     } else {
         ptr = engineScanner.Scan(new SigScanTarget(2,
             // call Engine.CTSingleLock::CTSingleLock
