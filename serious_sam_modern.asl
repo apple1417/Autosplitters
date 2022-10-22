@@ -97,11 +97,12 @@ init {
                 "41 8B F9"                  // mov edi,r9d
             ));
         } else {
-            base_ptr = scanner.Scan(new SigScanTarget(2,
+            base_ptr = scanner.Scan(new SigScanTarget(4,
+                "83 C4 ??",                 // add esp,04
+                "FF D0",                    // call eax
                 "8B 0D ????????",           // mov ecx,[Sam3.exe+BA93F0]            <----
                 "8B 11",                    // mov edx,[ecx]
-                "8B 42 5C",                 // mov eax,[edx+5C]
-                "FF D0"                     // call eax
+                "8B 42 ??"                  // mov eax,[edx+5C]
             ));
             offset_0_ptr = scanner.Scan(new SigScanTarget(2,
                 "8B 49 ??",                 // mov ecx,[ecx+08]                     <----
@@ -151,16 +152,34 @@ init {
                 "FF 43 ??"                  // inc [rbx+58]
             ));
         } else {
-            base_ptr = scanner.Scan(new SigScanTarget(12,
-                "8B BE ????0000",           // mov edi,[esi+00000090]
-                "3B FB",                    // cmp edi,ebx
-                "74 29",                    // je Sam3.exe+D94E2
-                "8B 15 ????????"            // mov edx,[Sam3.exe+BAF8BC]            <----
-            ));
-            offset_0_ptr = scanner.Scan(new SigScanTarget(7,
-                "B8 01000000",              // mov eax,00000001
-                "01 47 ??",                 // add [edi+34],eax                     <----
-                "01 47 ??"                  // add [edi+3C],eax
+            if (game.ProcessName == "Sam3") {
+                base_ptr = scanner.Scan(new SigScanTarget(14,
+                    "8B 4F ??",             // mov ecx,[edi+6C]
+                    "E8 ????????",          // call Sam3.exe+5E3070
+                    "85 C0",                // test eax,eax
+                    "74 ??",                // je Sam3.exe+354B13
+                    "8B 0D ????????"        // mov ecx,[Sam3.exe+BAF8BC]            <----
+                ));
+            } else {
+                base_ptr = scanner.Scan(new SigScanTarget(2,
+                    "8B 15 ????????",       // mov edx,[SamHD_TSE.exe+9B32B4]       <----
+                    "52",                   // push edx
+                    "8B 10",                // mov edx,[eax]
+                    "8B C8",                // mov ecx,eax
+                    "8B 02",                // mov eax,[edx]
+                    "FF D0",                // call eax
+                    "50",                   // push eax
+                    "E8 ????????",          // call SamHD_TSE.exe+605100
+                    "83 C4 08",             // add esp,08
+                    "85 C0",                // test eax,eax
+                    "0F85 ????????"         // jne SamHD_TSE.exe+2BAC60
+                ));
+            }
+            offset_0_ptr = scanner.Scan(new SigScanTarget(2,
+                "01 ?? ??",                 // add [ebx+34],esi                     <----
+                "01 ?? ??",                 // add [ebx+3C],esi
+                "EB ??",                    // jmp SamHD_TSE.exe+5DDCDE
+                "A1 ????????"               // mov eax,[SamHD_TSE.exe+9EA6B8]
             ));
         }
 
@@ -190,10 +209,11 @@ init {
                 "48 8D 4E 28"               // lea rcx,[rsi+28]
             ));
         } else {
-            base_ptr = scanner.Scan(new SigScanTarget(3,
-                "75 08",                    // jne 8
-                "A1 ????????",              // mov eax, [Talos.exe+target]          <----
-                "5E"                        // pop esi
+            base_ptr = scanner.Scan(new SigScanTarget(5,
+                "85 C0",                    // test eax,eax
+                "75 ??",                    // jne SamHD_TSE.exe+5A471
+                "A1 ????????",              // mov eax,[SamHD_TSE.exe+9B2B6C]       <----
+                "83 F8 02"                  // cmp eax,02
             ));
         }
 
