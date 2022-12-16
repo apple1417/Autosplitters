@@ -9,7 +9,9 @@
 */
 
 state("DedicatedServer") {}
+state("DedicatedServerGameSpy") {}
 state("SeriousSam") {}
+state("SeriousSamGamespy") {}
 
 startup {
     settings.Add("start_no_auto", false, "Don't guess start trigger");
@@ -21,7 +23,7 @@ startup {
 
 init {
     vars.foundPointers = false;
-    vars.isDedicated = game.ProcessName == "DedicatedServer";
+    vars.isDedicated = game.ProcessName.StartsWith("DedicatedServer");
 
     var exe = modules.First();
     var engine = modules.Where(m => m.ModuleName == "Engine.dll").First();
@@ -54,16 +56,6 @@ init {
             print("Unknown version: " + major.ToString() + "." + minor.ToString());
             version = "Unknown";
             return false;
-        }
-
-        /*
-          The steam version ships with some 64-bit exes that GOG doesn't have (and renames the
-           32-bit ones), which we can use to tell them apart.
-          There are also some memory differences but they're hard to find when I only have the steam
-           version.
-        */
-        if (!File.Exists(Path.GetDirectoryName(exe.FileName) + "\\SeriousModeler32.exe")) {
-            version += "-GOG";
         }
     } else {
         // If we didn't find the last sigscan then assume it's revolution, and double check
@@ -101,30 +93,34 @@ init {
         }
     }
 
+    if (version == "Error" || version == "Unknown") {
+        return false;
+    }
+
+    var baseGame = version;
+    var isSteamVersion = true;
+
+    if (vars.isDedicated) {
+        version = "Dedicated " + version;
+    }
+    // The steam TFE/TSE versions ship with some 64-bit exes that GOG doesn't have (and renames the
+    //  32-bit ones), which we can use to tell them apart.
+    if (!File.Exists(Path.GetDirectoryName(exe.FileName) + "\\SeriousModeler32.exe")) {
+        version += " GOG";
+        isSteamVersion = false;
+    }
+    if (exe.ModuleName.EndsWith("Gamespy.exe")) {
+        version += " GameSpy";
+        isSteamVersion = false;
+    }
+
     // Find all the pointers we need
 
     /*
       Find _pGame.gm_csComputerState through DoGame() in SeriousSam.cpp
       This actually has multiple different matches, but they'll all give us the right pointer
     */
-    if (version == "TFE" || version == "TSE") {
-        ptr = exeScanner.Scan(new SigScanTarget(13,
-            "83 C4 04",                 // add esp,04
-            "83 3D ???????? 00",        // cmp dword ptr [SeriousSam.exe+9896C],00
-            "74 ??",                    // je SeriousSam.exe+346FC
-            "A1 ????????",              // mov eax,[SeriousSam.exe+98D4C]   <--- _pGame
-            "8B 10"                     // mov edx,[eax]
-        ));
-    // TODO: TSE GOG is untested
-    } else if (version == "TFE-GOG" || version == "TSE-GOG") {
-        ptr = exeScanner.Scan(new SigScanTarget(17,
-            "83 c4 04",                 // add esp,0x4
-            "39 1d ????????",           // cmp DWORD PTR ds:0x442bf4,ebx
-            "0f 84 ????????",           // je 0x4d85
-            "8b 0d ????????",           // mov ecx,DWORD PTR ds:0x442fc4    <--- _pGame
-            "8b 11"                     // mov edx,DWORD PTR [ecx]
-        ));
-    } else if (version == "Revolution") {
+    if (baseGame == "Revolution") {
         ptr = exeScanner.Scan(new SigScanTarget(14,
             "83 C4 04",                 // add esp,04
             "83 3D ???????? 00",        // cmp dword ptr [SeriousSam.exe+8AC54],00
@@ -132,6 +128,24 @@ init {
             "8B 0D ????????",           // mov ecx,[SeriousSam.exe+9BA20]   <--- _pGame
             "8B 01"                     // mov eax,[ecx]
         ));
+    } else {
+        if (isSteamVersion) {
+            ptr = exeScanner.Scan(new SigScanTarget(13,
+                "83 C4 04",             // add esp,04
+                "83 3D ???????? 00",    // cmp dword ptr [SeriousSam.exe+9896C],00
+                "74 ??",                // je SeriousSam.exe+346FC
+                "A1 ????????",          // mov eax,[SeriousSam.exe+98D4C]   <--- _pGame
+                "8B 10"                 // mov edx,[eax]
+            ));
+        } else {
+            ptr = exeScanner.Scan(new SigScanTarget(17,
+                "83 c4 04",             // add esp,0x4
+                "39 1d ????????",       // cmp DWORD PTR ds:0x442bf4,ebx
+                "0f 84 ????????",       // je 0x4d85
+                "8b 0d ????????",       // mov ecx,DWORD PTR ds:0x442fc4    <--- _pGame
+                "8b 11"                 // mov edx,DWORD PTR [ecx]
+            ));
+        }
     }
     if (ptr == IntPtr.Zero && !vars.isDedicated) {
         print("Could not find pointer to _pGame.gm_csComputerState!");
@@ -140,7 +154,7 @@ init {
     } else {
         vars.computerState = new MemoryWatcher<int>(new DeepPointer(
             game.ReadValue<int>(ptr) - (int)exe.BaseAddress,
-            (version == "Revolution") ? 0xC : 0x8
+            (baseGame == "Revolution") ? 0xC : 0x8
         ));
         vars.allPointers.Add(vars.computerState);
     }
@@ -152,30 +166,31 @@ init {
        extract both addresses at once
       We only care about the main menu address, not actually it's contents, so we just save that
     */
-    if (version == "Revolution") {
+    if (baseGame == "Revolution") {
         ptr = exeScanner.Scan(new SigScanTarget(1,
             "A1 ????????",              // mov eax,[SeriousSam.exe+8AC58]   <--- pgmCurrentMenu
             "83 C4 04",                 // add esp,04
             "3D ????????"               // cmp eax,SeriousSam.exe+952D0     <--- &_pGUIM->gmMainMenu
         ));
         vars.mainMenu = game.ReadValue<int>(ptr + 8);
-    } else if (version == "TFE" || version == "TSE") {
-        ptr = exeScanner.Scan(new SigScanTarget(5,
-            // Technically this matches something in engine too, but we're using the exe scanner :)
-            "83 C4 04",                 // add esp,04
-            "81 3D ???????? ????????"   // cmp [SeriousSam.exe+989A4],SeriousSam.exe+94490
-                                        //         pgmCurrentMenu      &_pGUIM->gmMainMenu
-        ));
-        vars.mainMenu = game.ReadValue<int>(ptr + 4);
-    // TODO: TSE GOG is untested
-    } else if (version == "TFE-GOG" || version == "TSE-GOG") {
-        ptr = exeScanner.Scan(new SigScanTarget(1,
-            "a1 ????????",              // mov eax, ds:0x442c2c             <--- pgmCurrentMenu
-            "8b 0d ????????",           // mov ecx, DWORD PTR ds:0x442bf4
-            "83 c4 04",                 // add esp, 0x4
-            "3d ????????"               // cmp eax, 0x43e718                <--- &_pGUIM->gmMainMenu
-        ));
-        vars.mainMenu = game.ReadValue<int>(ptr + 14);
+    } else {
+        if (isSteamVersion) {
+            ptr = exeScanner.Scan(new SigScanTarget(5,
+                // Technically this matches something in engine too, but we're using the exe scanner :)
+                "83 C4 04",                 // add esp,04
+                "81 3D ???????? ????????"   // cmp [SeriousSam.exe+989A4],SeriousSam.exe+94490
+                                            //         pgmCurrentMenu      &_pGUIM->gmMainMenu
+            ));
+            vars.mainMenu = game.ReadValue<int>(ptr + 4);
+        } else {
+            ptr = exeScanner.Scan(new SigScanTarget(1,
+                "a1 ????????",              // mov eax, ds:0x442c2c             <--- pgmCurrentMenu
+                "8b 0d ????????",           // mov ecx, DWORD PTR ds:0x442bf4
+                "83 c4 04",                 // add esp, 0x4
+                "3d ????????"               // cmp eax, 0x43e718                <--- &_pGUIM->gmMainMenu
+            ));
+            vars.mainMenu = game.ReadValue<int>(ptr + 14);
+        }
     }
     if (ptr == IntPtr.Zero && !vars.isDedicated) {
         print("Could not find menu pointers!");
@@ -194,7 +209,7 @@ init {
       While it sounds iffy, you can search through to source to find out that in practice this only
        ever mutes loading screens, if you set your volume to 0 it will still be false.
     */
-    if (version == "Revolution") {
+    if (baseGame == "Revolution") {
         ptr = engineScanner.Scan(new SigScanTarget(5,
             "FF 77 40",                 // push [edi+40]
             "C7 05 ???????? 01000000"   // mov [Engine._pSound+1C],00000001
@@ -250,24 +265,29 @@ init {
       Revolution: https://gist.github.com/apple1417/cb95c9dac1bf2f00b5d2afff02d094fb
     */
     vars.gameFinished = new MemoryWatcher<int>(new DeepPointer(
-        _pNetwork, 0x20, (version == "Revolution") ? 0xDC : 0xB0
+        _pNetwork, 0x20, (baseGame == "Revolution") ? 0xDC : 0xB0
     ));
     vars.playerFlags =  new MemoryWatcher<int>(new DeepPointer(
-        _pNetwork, 0x20, 0x4, 0x4, (version == "Revolution") ? 0x3DC : 0x380
+        _pNetwork, 0x20, 0x4, 0x4, (baseGame == "Revolution") ? 0x3DC : 0x380
     ));
-    // TODO: Untested on GOG versions, I'd be suprised if it fails though
     vars.isSinglePlayer =  new MemoryWatcher<int>(new DeepPointer(
-        _pNetwork, (version == "Revolution") ? 0x9D8 : 0x97C
+        _pNetwork, (baseGame == "Revolution") ? 0x9D8 : 0x97C
     ));
 
     var secretOffset = 0;
-    switch (version) {
+    switch (baseGame) {
         case "TFE":
-        case "TFE-GOG": secretOffset = 0x1274; break;
+            secretOffset = 0x1274;
+            break;
         case "TSE":
-        case "TSE-GOG": secretOffset = 0x25B8; break;
-        case "Revolution": secretOffset = 0x2BB0; break;
-        default: print("Invalid version"); return false;
+            secretOffset = 0x25B8;
+            break;
+        case "Revolution":
+            secretOffset = 0x2BB0;
+            break;
+        default:
+            print("Invalid version");
+            return false;
     }
     vars.secretCount = new MemoryWatcher<int>(new DeepPointer(
         _pNetwork, 0x20, 0x4, 0x4, secretOffset
@@ -278,10 +298,6 @@ init {
     vars.allPointers.Add(vars.secretCount);
 
     vars.foundPointers = true;
-
-    if (vars.isDedicated) {
-        version = "Dedicated " + version;
-    }
 }
 
 update {
