@@ -1,8 +1,15 @@
 state("Talos2-Win64-Shipping") {}
 
 startup {
-    settings.Add("start_skip_bootup", true, "Start the run on skipping the first cutscene in bootup.");
-    settings.Add("split_levels", true, "Split on level transitions");
+    settings.Add("start_header", true, "Start the run on ...");
+    settings.Add("start_skip_bootup", true, "Skipping the first cutscene in bootup", "start_header");
+    settings.Add("start_any_level", false, "Loading into any level", "start_header");
+
+    settings.Add("split_header", true, "Split on ...");
+    settings.Add("split_levels", true, "Level transitions", "split_header");
+
+    vars.RE_LOGLINE = new System.Text.RegularExpressions.Regex(@"^\[.+?\]\[.+?\](.+)$");
+    vars.RE_ASYNC_TIME_LIMIT = new System.Text.RegularExpressions.Regex(@"s.AsyncLoadingTimeLimit = ""(\d+(.\d+)?)""");
 
     vars.VALID_LEVELS_TO_SPLIT_ON = new HashSet<string>() {
         "OriginalSim_WP",
@@ -126,6 +133,8 @@ init {
     var stream = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
     stream.Seek(0, SeekOrigin.End);
     vars.reader = new StreamReader(stream);
+
+    vars.isLoading = false;
 }
 
 exit {
@@ -157,10 +166,17 @@ update {
                 // Blacklist the birthlab -> city transition
                 && !(vars.lastValidWorld == "RobotCity_BirthLab_v02" && newWorld == "RobotCity_WP")) {
 
+                print("Splitting for level transition.");
                 vars.TimerModel.Split();
             }
 
             vars.lastValidWorld = newWorld;
+        }
+
+        // World will change to none while in a load, so start on any change away from it
+        if (settings["start_any_level"] && vars.currentInnerWorld == "None") {
+            print("Starting due to level load");
+            vars.TimerModel.Start();
         }
 
         vars.currentInnerWorld = newWorld;
@@ -171,15 +187,61 @@ update {
         if (line == null) {
             break;
         }
+        var match = vars.RE_LOGLINE.Match(line);
+        if (!match.Success) {
+            continue;
+        }
+        line = match.Groups[1].Value;
 
         // Handle all log parsing in one place
 
-        if (settings.StartEnabled && settings["start_skip_bootup"]
-            && line.EndsWith("LogLevelSequence: Starting new camera cut: 'CameraActor_UAID_00FFDAACEB7F9A9001_1470756327'")
+        if (settings["start_skip_bootup"]
+            // Not going to trust the FName index to be constant, but the hash within the name should be
+            && line.StartsWith("LogLevelSequence: Starting new camera cut: 'CameraActor_UAID_00FFDAACEB7F9A9001_")
             && vars.currentInnerWorld == "OriginalSim_WP") {
+            print("Starting run due to bootup cutscene end");
             vars.TimerModel.Start();
+            continue;
+        }
+
+        // This line is printed at the very start of a load, breakpointed the exact call that prints
+        // to confirm, so we can be confident in it
+        // Problem is, it only happens on RCs and going main menu <-> game, not between levels
+        if (line.StartsWith("LogLoad: LoadMap: ")) {
+            print("Map loaded, starting load");
+            vars.isLoading = true;
+            continue;
+        }
+
+        // Which leads us to this hacky trigger: seems they change the async load time limit during
+        // a load
+        var asyncMatch = vars.RE_ASYNC_TIME_LIMIT.Match(line);
+        if (asyncMatch.Success) {
+            // Seen values of 10.0, 15.0 when starting loading, and 0.5 on stop - round to a
+            // threshold of 1
+            var timeout = Convert.ToDouble(asyncMatch.Groups[1].Value);
+            if (timeout > 1.0) {
+                print("Increased async loading time limit");
+                // Not convinced this is a good starting load trigger, so leaving it out for now
+            } else {
+                print("Decreased decreased async loading time limit, stopping load");
+                vars.isLoading = false;
+            }
+            continue;
+        }
+
+        // This one's a fallback: we'll rarely hit it, but when we do we're definitely in a load,
+        // better late than never
+        if (line.StartsWith("LogStreaming: Warning: IsTimeLimitExceeded: ProcessAsyncLoadingFromGameThread")) {
+            print("Exceeded async load time limit, starting load");
+            vars.isLoading = true;
+            continue;
         }
     }
+}
+
+isLoading {
+    return vars.isLoading;
 }
 
 // Dummies to add the options back
