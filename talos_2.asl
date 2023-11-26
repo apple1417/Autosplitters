@@ -13,6 +13,9 @@ startup {
     settings.Add("split_labs", false, "Visting labs", "split_header");
     settings.Add("split_vtol", false, "VTOL flights", "split_header");
 
+    settings.Add("reset_header", true, "Reset on ...");
+    settings.Add("reset_main_menu", true, "Returning to main menu", "reset_header");
+
     vars.RE_LOGLINE = new System.Text.RegularExpressions.Regex(@"^\[.+?\]\[.+?\](.+)$");
     vars.RE_ASYNC_TIME_LIMIT = new System.Text.RegularExpressions.Regex(@"s.AsyncLoadingTimeLimit = ""(\d+(.\d+)?)""");
 
@@ -250,6 +253,11 @@ update {
     if (vars.gWorldFName.Changed) {
         var newWorld = vars.FNameToString(vars.gWorldFName.Current);
         print("GWorld changed from '" + vars.currentGWorld + "' to '" + newWorld + "'");
+
+        if (settings["reset_main_menu"] && newWorld == "MainMenu2") {
+            vars.TimerModel.Reset();
+        }
+
         vars.currentGWorld = newWorld;
     }
 
@@ -395,3 +403,4 @@ isLoading {
 // Dummies to add the options back
 start { return false; }
 split { return false; }
+reset { return false; }
