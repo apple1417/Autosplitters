@@ -17,7 +17,6 @@ startup {
     settings.Add("reset_main_menu", true, "Returning to main menu", "reset_header");
 
     vars.RE_LOGLINE = new System.Text.RegularExpressions.Regex(@"^\[.+?\]\[.+?\](.+)$");
-    vars.RE_ASYNC_TIME_LIMIT = new System.Text.RegularExpressions.Regex(@"s.AsyncLoadingTimeLimit = ""(\d+(.\d+)?)""");
 
     vars.VALID_LEVELS_TO_SPLIT_ON = new HashSet<string>() {
         "OriginalSim_WP",
@@ -370,19 +369,11 @@ update {
         }
 
         // Which leads us to this hacky trigger: seems they change the async load time limit during
-        // a load
-        var asyncMatch = vars.RE_ASYNC_TIME_LIMIT.Match(line);
-        if (asyncMatch.Success) {
-            // Seen values of 10.0, 15.0 when starting loading, and 0.5 on stop - round to a
-            // threshold of 1
-            var timeout = Convert.ToDouble(asyncMatch.Groups[1].Value);
-            if (timeout > 1.0) {
-                print("Increased async loading time limit");
-                // Not convinced this is a good starting load trigger, so leaving it out for now
-            } else {
-                print("Decreased decreased async loading time limit, stopping load");
-                vars.isLoading = false;
-            }
+        // a load. This happens at a bunch of times which aren't appropriate for starting a load,
+        // but we can use it to detect when to end - spurious activations won't do much.
+        if (line.StartsWith("s.AsyncLoadingTimeLimit = \"0.5\"")) {
+            print("Decreased decreased async loading time limit, stopping load");
+            vars.isLoading = false;
             continue;
         }
 
