@@ -278,7 +278,9 @@ update {
         var newWorld = vars.FNameToString(vars.gWorldFName.Current);
         print("GWorld changed from '" + vars.currentGWorld + "' to '" + newWorld + "'");
 
-        if (settings["reset_main_menu"] && newWorld == "MainMenu2") {
+        if (settings["reset_main_menu"]
+            && newWorld == "MainMenu2"
+            && timer.CurrentPhase != TimerPhase.Ended) {
             vars.TimerModel.Reset();
         }
 
