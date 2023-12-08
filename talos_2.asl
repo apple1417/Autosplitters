@@ -2,11 +2,11 @@ state("Talos2-Win64-Shipping") {}
 
 startup {
     settings.Add("start_header", true, "Start the run on ...");
-    settings.Add("start_skip_bootup", true, "Skipping the first cutscene in bootup", "start_header");
+    settings.Add("start_skip_bootup", true, "Skipping the first cutscene in Booting Process", "start_header");
     settings.Add("start_any_level", false, "Loading into any level", "start_header");
 
     settings.Add("split_header", true, "Split on ...");
-    settings.Add("split_levels", false, "Level transitions", "split_header");
+    settings.Add("split_levels", true, "Level transitions", "split_header");
     settings.Add("split_lasers", false, "Activating towers", "split_header");
     settings.Add("split_puzzles", false, "Solving puzzles", "split_header");
     settings.Add("split_stars", false, "Collecting stars", "split_header");
@@ -15,7 +15,8 @@ startup {
     settings.Add("split_achievements", false, "Achievement triggers", "split_header");
 
     settings.Add("reset_header", true, "Reset on ...");
-    settings.Add("reset_main_menu", true, "Returning to main menu", "reset_header");
+    settings.Add("reset_main_menu", false, "Returning to the Main Menu", "reset_header");
+    settings.Add("reset_enter_boot", true, "Entering Booting Process from the Main Menu", "reset_header");
 
     vars.RE_LOGLINE = new System.Text.RegularExpressions.Regex(@"^\[.+?\]\[.+?\](.+)$");
 
@@ -220,6 +221,7 @@ init {
     vars.lastValidWorld = vars.VALID_LEVELS_TO_SPLIT_ON.Contains(vars.currentInnerWorld)
                             ? vars.currentInnerWorld
                             : null;
+    vars.lastLevelTransitionTime = DateTime.MinValue;
 #endregion
 
 #region Save data
@@ -278,9 +280,14 @@ update {
         var newWorld = vars.FNameToString(vars.gWorldFName.Current);
         print("GWorld changed from '" + vars.currentGWorld + "' to '" + newWorld + "'");
 
+        if (newWorld == "MainMenu2") {
+            vars.lastValidWorld = null;
+        }
+
         if (settings["reset_main_menu"]
             && newWorld == "MainMenu2"
             && timer.CurrentPhase != TimerPhase.Ended) {
+            print("Resetting due to returning to main menu.");
             vars.TimerModel.Reset();
         }
 
@@ -291,18 +298,30 @@ update {
         var newWorld = vars.FNameToString(vars.innerWorldFName.Current);
         print("Inner world changed from '" + vars.currentInnerWorld + "' to '" + newWorld + "'");
 
+        if (settings["reset_enter_boot"]
+            && newWorld == "OriginalSim_WP"
+            && vars.lastValidWorld == null // If we were on the main menu before
+            && timer.CurrentPhase != TimerPhase.Ended) {
+            print("Resetting due to entering bootup from main menu.");
+            vars.TimerModel.Reset();
+        }
+
         // Easier to handle level change splitting here - we need to keep updating last valid world
         // even outside of a run.
         if (vars.VALID_LEVELS_TO_SPLIT_ON.Contains(newWorld)) {
-            if (settings.SplitEnabled && settings["split_levels"]
+            if (settings["split_levels"]
                 && vars.lastValidWorld != newWorld
                 // Don't split if this is the first transition of the run
                 && vars.lastValidWorld != null
+                // Double split prevention
+                // Miranda dream triggers camp -> mega 4 -> bootup in quick succession
+                && (DateTime.Now - vars.lastLevelTransitionTime).TotalSeconds > 1
                 // Blacklist the birthlab -> city transition
                 && !(vars.lastValidWorld == "RobotCity_BirthLab_v02" && newWorld == "RobotCity_WP")) {
 
                 print("Splitting for level transition.");
                 vars.TimerModel.Split();
+                vars.lastLevelTransitionTime = DateTime.Now;
             }
 
             vars.lastValidWorld = newWorld;
@@ -425,7 +444,7 @@ update {
         // a load. This happens at a bunch of times which aren't appropriate for starting a load,
         // but we can use it to detect when to end - spurious activations won't do much.
         if (line.StartsWith("s.AsyncLoadingTimeLimit = \"0.5\"")) {
-            print("Decreased decreased async loading time limit, stopping load");
+            print("Decreased async loading time limit, stopping load");
             vars.isLoading = false;
             continue;
         }
@@ -442,6 +461,13 @@ update {
 
 isLoading {
     return vars.isLoading;
+}
+
+onStart {
+    if (vars.isLoading) {
+        timer.IsGameTimePaused = true;
+        timer.SetGameTime(TimeSpan.Zero);
+    }
 }
 
 // Dummies to add the options back
