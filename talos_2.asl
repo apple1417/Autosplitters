@@ -159,8 +159,7 @@ init {
     } else {
         var fNamePool = IntPtr.Add(ptr, game.ReadValue<int>(ptr) + 4);
 
-        // Pre-cache 0, incase we get given an invalid pointer to read before GNames is initalized
-        var gnamesCache = new Dictionary<ulong, string>() {{0, "None"}};
+        var gnamesCache = new Dictionary<ulong, string>();
         vars.FNameToString = (Func<ulong, string>)((fName) => {
             var number       = (fName & 0xFFFFFFFF00000000) >> 0x20;
             var nameLookup   = (fName & 0x00000000FFFFFFFF) >> 0x00;
@@ -205,45 +204,17 @@ init {
         )){
             FailAction = MemoryWatcher.ReadFailAction.SetZeroOrNull
         };
-
-        /*
-        When in game, GWorld is a "holder" world, which gets individual levels swapped out as you
-        travel to the different ones - believe this is to let them make loads more seamless.
-        This is a problem when we want to split on level transitions however, since it's all the
-        same holder world.
-
-        To detect the "inner world", we follow something like `GWorld.Levels[2].Outer.Name`.
-
-        The first level is always holder, same as GWorld
-        The second is usually fine, however if you travel to a specific puzzle, it sometimes ends up
-        stuck on capsule tunnel.
-        Therefore, use the third.
-
-        However, even with fail action zero, occasionally during loads we still manage to catch an
-        invalid FName. To avoid this, also check `GWorld.Levels.Size >= 2` everywhere.
-        */
-
-        vars.innerWorldCount = new MemoryWatcher<int>(new DeepPointer(
-            baseAddr, 0x188
-        )){
-            FailAction = MemoryWatcher.ReadFailAction.SetZeroOrNull
-        };
         vars.innerWorldFName = new MemoryWatcher<ulong>(new DeepPointer(
-            baseAddr, 0x180, 0x10, 0x20, UOBJECT_NAME_OFFSET
+            baseAddr, 0x180, 0x8, 0x20, UOBJECT_NAME_OFFSET
         )){
             FailAction = MemoryWatcher.ReadFailAction.SetZeroOrNull
         };
     }
 
     vars.gWorldFName.Update(game);
-    vars.currentGWorld = vars.FNameToString(vars.gWorldFName.Current);
-
-    vars.innerWorldCount.Update(game);
     vars.innerWorldFName.Update(game);
-    vars.currentInnerWorld = vars.innerWorldCount.Current >= 2
-                            ? vars.FNameToString(vars.innerWorldFName.Current)
-                            : null;
-
+    vars.currentGWorld = vars.FNameToString(vars.gWorldFName.Current);
+    vars.currentInnerWorld = vars.FNameToString(vars.innerWorldFName.Current);
     print("Inital GWorld: '" + vars.currentGWorld + "'");
     print("Inital inner world: '" + vars.currentInnerWorld + "'");
 
@@ -296,9 +267,6 @@ init {
 exit {
     vars.reader.Close();
     vars.reader = null;
-
-    vars.isLoading = true;
-    timer.IsGameTimePaused = true;
 }
 
 update {
@@ -326,7 +294,7 @@ update {
         vars.currentGWorld = newWorld;
     }
 
-    if (vars.innerWorldCount.Current >= 2 && vars.innerWorldFName.Changed) {
+    if (vars.innerWorldFName.Changed) {
         var newWorld = vars.FNameToString(vars.innerWorldFName.Current);
         print("Inner world changed from '" + vars.currentInnerWorld + "' to '" + newWorld + "'");
 
