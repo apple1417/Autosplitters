@@ -19,7 +19,7 @@ startup {
     settings.Add("reset_enter_boot", true, "Entering Booting Process from the Main Menu", "reset_header");
 
     vars.RE_LOGLINE = new System.Text.RegularExpressions.Regex(@"^\[.+?\]\[.+?\](.+)$");
-
+    vars.RE_ASYNC_TIME_LIMIT = new System.Text.RegularExpressions.Regex(@"s.AsyncLoadingTimeLimit = ""(\d+(.\d+)?)""");
 
     vars.BOOL_VAR_SPLITS = new List<Tuple<string, HashSet<string>>>() {
         new Tuple<string, HashSet<string>>("split_lasers", new HashSet<string>() {
@@ -361,6 +361,16 @@ update {
     }
 
     while (vars.reader != null) {
+        // The log file is rotated, but if we're running as the game launches, we might still catch
+        // the last one. When the game truncates it, this means we're left reading from an offset
+        // far beyond the end of the file.
+        // Detect this and reset the stream pos
+        if (vars.reader.BaseStream.Position > vars.reader.BaseStream.Length) {
+            print("Resetting log stream pos due to truncate");
+            vars.reader.DiscardBufferedData();
+            vars.reader.BaseStream.Position = 0;
+        }
+
         var line = vars.reader.ReadLine();
         if (line == null) {
             break;
@@ -394,9 +404,16 @@ update {
         // Which leads us to this hacky trigger: seems they change the async load time limit during
         // a load. This happens at a bunch of times which aren't appropriate for starting a load,
         // but we can use it to detect when to end - spurious activations won't do much.
-        if (line.StartsWith("s.AsyncLoadingTimeLimit = \"0.5\"")) {
-            print("Decreased async loading time limit, stopping load");
-            vars.isLoading = false;
+        var asyncMatch = vars.RE_ASYNC_TIME_LIMIT.Match(line);
+        if (asyncMatch.Success) {
+            // Seen values of 10.0, 15.0 when starting loading, and 0.5, 3.0 on stopping
+            // Also seen some mystery 7.0s I haven't been able to place - so use 7.5 to be safe,
+            // treat them as ending a load
+            var timeout = Convert.ToDouble(asyncMatch.Groups[1].Value);
+            if (timeout < 7.0) {
+                print("Decreased async loading time limit, stopping load");
+                vars.isLoading = false;
+            }
             continue;
         }
 
