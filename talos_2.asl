@@ -20,28 +20,6 @@ startup {
 
     vars.RE_LOGLINE = new System.Text.RegularExpressions.Regex(@"^\[.+?\]\[.+?\](.+)$");
 
-    vars.VALID_LEVELS_TO_SPLIT_ON = new HashSet<string>() {
-        "OriginalSim_WP",
-        "RobotCity_BirthLab_v02", // Note: we blacklist the birthlab -> city transition later
-        "RobotCity_WP",           // Need birthlab to split on exiting bootup/mega 4
-        "Pyramid_WP",
-        "E1_WP",
-        "E2_WP",
-        "E3_WP",
-        "Pyramid_Entrance_E",
-        "N1_WP",
-        "N2_WP",
-        "N3_WP",
-        "Pyramid_Entrance_N",
-        "S1_WP",
-        "S2_WP",
-        "S3_WP",
-        "Pyramid_Entrance_S",
-        "W1_WP",
-        "W2_WP",
-        "W3_WP",
-        "Pyramid_Entrance_W",
-    };
 
     vars.BOOL_VAR_SPLITS = new List<Tuple<string, HashSet<string>>>() {
         new Tuple<string, HashSet<string>>("split_lasers", new HashSet<string>() {
@@ -159,7 +137,8 @@ init {
     } else {
         var fNamePool = IntPtr.Add(ptr, game.ReadValue<int>(ptr) + 4);
 
-        var gnamesCache = new Dictionary<ulong, string>();
+        // Pre-cache 0, incase we get given an invalid pointer to read before GNames is initalized
+        var gnamesCache = new Dictionary<ulong, string>() {{0, "None"}};
         vars.FNameToString = (Func<ulong, string>)((fName) => {
             var number       = (fName & 0xFFFFFFFF00000000) >> 0x20;
             var nameLookup   = (fName & 0x00000000FFFFFFFF) >> 0x00;
@@ -201,27 +180,11 @@ init {
 
         vars.gWorldFName = new MemoryWatcher<ulong>(new DeepPointer(
             baseAddr, UOBJECT_NAME_OFFSET
-        )){
-            FailAction = MemoryWatcher.ReadFailAction.SetZeroOrNull
-        };
-        vars.innerWorldFName = new MemoryWatcher<ulong>(new DeepPointer(
-            baseAddr, 0x180, 0x8, 0x20, UOBJECT_NAME_OFFSET
-        )){
-            FailAction = MemoryWatcher.ReadFailAction.SetZeroOrNull
-        };
+        ));
     }
 
     vars.gWorldFName.Update(game);
-    vars.innerWorldFName.Update(game);
     vars.currentGWorld = vars.FNameToString(vars.gWorldFName.Current);
-    vars.currentInnerWorld = vars.FNameToString(vars.innerWorldFName.Current);
-    print("Inital GWorld: '" + vars.currentGWorld + "'");
-    print("Inital inner world: '" + vars.currentInnerWorld + "'");
-
-    vars.lastValidWorld = vars.VALID_LEVELS_TO_SPLIT_ON.Contains(vars.currentInnerWorld)
-                            ? vars.currentInnerWorld
-                            : null;
-    vars.lastLevelTransitionTime = DateTime.MinValue;
 #endregion
 
 #region Save data
@@ -238,15 +201,21 @@ init {
     } else {
         var baseAddr = IntPtr.Add(ptr, game.ReadValue<int>(ptr) + 4);
 
+        vars.lastPlayedWorld = new StringWatcher(new DeepPointer(
+            baseAddr, 0xFC0, 0x1C0, 0x28, 0x0, 0x48, 0x0
+        ), ReadStringType.UTF16, 64);
+
         vars.boolVariablesPtr = new DeepPointer(
             baseAddr, 0xFC0, 0x1C0, 0x28, 0x0, 0xC8, 0x0
         );
         vars.boolVariableCount = new MemoryWatcher<int>(new DeepPointer(
             baseAddr, 0xFC0, 0x1C0, 0x28, 0x0, 0xD0
         ));
+
         vars.utopiaPuzzleCount = new MemoryWatcher<int>(new DeepPointer(
             baseAddr, 0xFC0, 0x1C0, 0x28, 0x0, 0x208
         ));
+
         vars.achievementCount = new MemoryWatcher<int>(new DeepPointer(
             baseAddr, 0xFC0, 0x1C0, 0x60
         ));
@@ -267,11 +236,14 @@ init {
 exit {
     vars.reader.Close();
     vars.reader = null;
+
+    vars.isLoading = true;
+    timer.IsGameTimePaused = true;
 }
 
 update {
     vars.gWorldFName.Update(game);
-    vars.innerWorldFName.Update(game);
+    vars.lastPlayedWorld.Update(game);
     vars.boolVariableCount.Update(game);
     vars.utopiaPuzzleCount.Update(game);
     vars.achievementCount.Update(game);
@@ -280,10 +252,6 @@ update {
         var newWorld = vars.FNameToString(vars.gWorldFName.Current);
         print("GWorld changed from '" + vars.currentGWorld + "' to '" + newWorld + "'");
 
-        if (newWorld == "MainMenu2") {
-            vars.lastValidWorld = null;
-        }
-
         if (settings["reset_main_menu"]
             && newWorld == "MainMenu2"
             && timer.CurrentPhase != TimerPhase.Ended) {
@@ -291,49 +259,32 @@ update {
             vars.TimerModel.Reset();
         }
 
+        if (vars.currentGWorld == "MainMenu2" && newWorld == "Holder") {
+            if (settings["reset_enter_boot"]
+                && vars.lastPlayedWorld.Current == "OriginalSim_WP"
+                && timer.CurrentPhase != TimerPhase.Ended) {
+                print("Resetting due to entering bootup from main menu.");
+                vars.TimerModel.Reset();
+            }
+
+            if (settings["start_any_level"]) {
+                print("Starting due to level load");
+                vars.TimerModel.Start();
+            }
+        }
+
         vars.currentGWorld = newWorld;
     }
 
-    if (vars.innerWorldFName.Changed) {
-        var newWorld = vars.FNameToString(vars.innerWorldFName.Current);
-        print("Inner world changed from '" + vars.currentInnerWorld + "' to '" + newWorld + "'");
+    if (vars.lastPlayedWorld.Changed) {
+        print("LastPlayedWorld changed from '" + vars.lastPlayedWorld.Old + "' to '" + vars.lastPlayedWorld.Current + "'");
 
-        if (settings["reset_enter_boot"]
-            && newWorld == "OriginalSim_WP"
-            && vars.lastValidWorld == null // If we were on the main menu before
-            && timer.CurrentPhase != TimerPhase.Ended) {
-            print("Resetting due to entering bootup from main menu.");
-            vars.TimerModel.Reset();
+        if (settings["split_levels"]
+            // Blacklist the birthlab -> city transition
+            && !(vars.lastPlayedWorld.Old == "RobotCity_BirthLab_v02" && vars.lastPlayedWorld.Current == "RobotCity_WP")) {
+            print("Splitting for level transition.");
+            vars.TimerModel.Split();
         }
-
-        // Easier to handle level change splitting here - we need to keep updating last valid world
-        // even outside of a run.
-        if (vars.VALID_LEVELS_TO_SPLIT_ON.Contains(newWorld)) {
-            if (settings["split_levels"]
-                && vars.lastValidWorld != newWorld
-                // Don't split if this is the first transition of the run
-                && vars.lastValidWorld != null
-                // Double split prevention
-                // Miranda dream triggers camp -> mega 4 -> bootup in quick succession
-                && (DateTime.Now - vars.lastLevelTransitionTime).TotalSeconds > 1
-                // Blacklist the birthlab -> city transition
-                && !(vars.lastValidWorld == "RobotCity_BirthLab_v02" && newWorld == "RobotCity_WP")) {
-
-                print("Splitting for level transition.");
-                vars.TimerModel.Split();
-                vars.lastLevelTransitionTime = DateTime.Now;
-            }
-
-            vars.lastValidWorld = newWorld;
-        }
-
-        // World will change to none while in a load, so start on any change away from it
-        if (settings["start_any_level"] && vars.currentInnerWorld == "None") {
-            print("Starting due to level load");
-            vars.TimerModel.Start();
-        }
-
-        vars.currentInnerWorld = newWorld;
     }
 
     if (vars.boolVariableCount.Changed) {
@@ -425,7 +376,7 @@ update {
         if (settings["start_skip_bootup"]
             // Not going to trust the FName index to be constant, but the hash within the name should be
             && line.StartsWith("LogLevelSequence: Starting new camera cut: 'CameraActor_UAID_00FFDAACEB7F9A9001_")
-            && vars.currentInnerWorld == "OriginalSim_WP") {
+            && vars.lastPlayedWorld.Current == "OriginalSim_WP") {
             print("Starting run due to bootup cutscene end");
             vars.TimerModel.Start();
             continue;
