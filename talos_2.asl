@@ -15,8 +15,8 @@ startup {
     settings.Add("split_achievements", false, "Achievement triggers", "split_header");
 
     settings.Add("reset_header", true, "Reset on ...");
+    settings.Add("reset_boot_cutscene", true, "Skipping the first cutscene in Booting Process", "reset_header");
     settings.Add("reset_main_menu", false, "Returning to the Main Menu", "reset_header");
-    settings.Add("reset_enter_boot", true, "Entering Booting Process from the Main Menu", "reset_header");
 
     vars.RE_LOGLINE = new System.Text.RegularExpressions.Regex(@"^\[.+?\]\[.+?\](.+)$");
     vars.RE_ASYNC_TIME_LIMIT = new System.Text.RegularExpressions.Regex(@"s.AsyncLoadingTimeLimit = ""(\d+(.\d+)?)""");
@@ -287,18 +287,12 @@ update {
             vars.TimerModel.Reset();
         }
 
-        if (vars.currentGWorld == "MainMenu2" && newWorld == "Holder") {
-            if (settings["reset_enter_boot"]
-                && vars.lastPlayedWorld.Current == "OriginalSim_WP"
-                && timer.CurrentPhase != TimerPhase.Ended) {
-                print("Resetting due to entering bootup from main menu.");
-                vars.TimerModel.Reset();
-            }
-
-            if (settings["start_any_level"]) {
-                print("Starting due to level load");
-                vars.TimerModel.Start();
-            }
+        if (settings["start_any_level"]
+            && vars.currentGWorld == "MainMenu2"
+            && newWorld == "Holder"
+        ) {
+            print("Starting due to level load");
+            vars.TimerModel.Start();
         }
 
         vars.currentGWorld = newWorld;
@@ -427,7 +421,13 @@ update {
         if (settings["start_skip_bootup"]
             // Not going to trust the FName index to be constant, but the hash within the name should be
             && line.StartsWith("LogLevelSequence: Starting new camera cut: 'CameraActor_UAID_00FFDAACEB7F9A9001_")
-            && vars.lastPlayedWorld.Current == "OriginalSim_WP") {
+            && vars.lastPlayedWorld.Current == "OriginalSim_WP"
+        ) {
+            if (settings["reset_boot_cutscene"] && timer.CurrentPhase != TimerPhase.Ended ) {
+                print("Resetting for bootup cutscene restart");
+                vars.TimerModel.Reset();
+            }
+
             print("Starting run due to bootup cutscene end");
             vars.TimerModel.Start();
             continue;
