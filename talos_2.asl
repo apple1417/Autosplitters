@@ -21,6 +21,29 @@ startup {
     vars.RE_LOGLINE = new System.Text.RegularExpressions.Regex(@"^\[.+?\]\[.+?\](.+)$");
     vars.RE_ASYNC_TIME_LIMIT = new System.Text.RegularExpressions.Regex(@"s.AsyncLoadingTimeLimit = ""(\d+(.\d+)?)""");
 
+    vars.VALID_LEVELS_TO_SPLIT_ON = new HashSet<string>() {
+        "OriginalSim_WP",
+        "RobotCity_BirthLab_v02", // Note: we blacklist the birthlab -> city transition later
+        "RobotCity_WP",           // Need birthlab to split on exiting bootup/mega 4
+        "Pyramid_WP",
+        "E1_WP",
+        "E2_WP",
+        "E3_WP",
+        "Pyramid_Transition_E",
+        "N1_WP",
+        "N2_WP",
+        "N3_WP",
+        "Pyramid_Transition_N",
+        "S1_WP",
+        "S2_WP",
+        "S3_WP",
+        "Pyramid_Transition_S",
+        "W1_WP",
+        "W2_WP",
+        "W3_WP",
+        "Pyramid_Interior_W",
+    };
+
     vars.BOOL_VAR_SPLITS = new List<Tuple<string, HashSet<string>>>() {
         new Tuple<string, HashSet<string>>("split_lasers", new HashSet<string>() {
             "E1:TowerActive",
@@ -220,6 +243,11 @@ init {
             baseAddr, 0xFC0, 0x1C0, 0x60
         ));
     }
+
+    vars.lastPlayedWorld.Update(game);
+    vars.lastSplittableWorld = vars.VALID_LEVELS_TO_SPLIT_ON.Contains(vars.lastPlayedWorld.Current)
+                            ? vars.lastPlayedWorld.Current
+                            : null;
 #endregion
 
     var logPath = (
@@ -279,11 +307,24 @@ update {
     if (vars.lastPlayedWorld.Changed) {
         print("LastPlayedWorld changed from '" + vars.lastPlayedWorld.Old + "' to '" + vars.lastPlayedWorld.Current + "'");
 
-        if (settings["split_levels"]
-            // Blacklist the birthlab -> city transition
-            && !(vars.lastPlayedWorld.Old == "RobotCity_BirthLab_v02" && vars.lastPlayedWorld.Current == "RobotCity_WP")) {
-            print("Splitting for level transition.");
-            vars.TimerModel.Split();
+        if (vars.VALID_LEVELS_TO_SPLIT_ON.Contains(vars.lastPlayedWorld.Current)) {
+            if (settings["split_levels"]
+                && vars.lastSplittableWorld != vars.lastPlayedWorld.Current
+                // Don't split if this is the first transition of the run
+                && vars.lastSplittableWorld != null
+                // Blacklist the birthlab -> city transition
+                && !(vars.lastSplittableWorld == "RobotCity_BirthLab_v02"
+                    && vars.lastPlayedWorld.Current == "RobotCity_WP")
+                // Blacklist the athena temple -> pyramid reset when you finish the run
+                && !(vars.lastSplittableWorld == "Pyramid_Interior_W"
+                    && vars.lastPlayedWorld.Current == "Pyramid_WP"
+                    && vars.lastPlayedWorld.Old == "AthenaTemple")
+            ) {
+                print("Splitting for level transition.");
+                vars.TimerModel.Split();
+            }
+
+            vars.lastSplittableWorld = vars.lastPlayedWorld.Current;
         }
     }
 
