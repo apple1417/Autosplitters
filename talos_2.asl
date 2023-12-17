@@ -13,6 +13,9 @@ startup {
     settings.Add("split_labs", false, "Visting labs", "split_header");
     settings.Add("split_vtol", false, "VTOL flights", "split_header");
     settings.Add("split_achievements", false, "Achievement triggers", "split_header");
+    settings.Add("split_mega_east", false, "Megastructure East lasers", "split_header");
+    settings.Add("split_mega_north", false, "Megastructure North lasers", "split_header");
+    settings.Add("split_mega_south", false, "Megastructure South pins", "split_header");
 
     settings.Add("reset_header", true, "Reset on ...");
     settings.Add("reset_boot_cutscene", true, "Skipping the first cutscene in Booting Process", "reset_header");
@@ -128,6 +131,24 @@ startup {
             "FlightCompleted:9",
             "FlightCompleted:10b",
             "FlightCompleted:11",
+        }),
+        new Tuple<string, HashSet<string>>("split_mega_east", new HashSet<string>() {
+            "General.ME:PuzzleSolved:0",
+            "General.ME:PuzzleSolved:1",
+            "General.ME:PuzzleSolved:2",
+        }),
+        new Tuple<string, HashSet<string>>("split_mega_north", new HashSet<string>() {
+            "MN:PuzzleSolvedRed",
+            "MN:PuzzleSolvedGreen",
+            "MN:PuzzleSolvedBlue",
+        }),
+        new Tuple<string, HashSet<string>>("split_mega_south", new HashSet<string>() {
+            "MS:PrometheusChainPin0",
+            "MS:PrometheusChainPin1",
+            "MS:PrometheusChainPin2",
+            "MS:PrometheusChainPin3",
+            "MS:PrometheusChainPin4",
+            "MS:PrometheusStatueSolved",
         }),
     };
 
