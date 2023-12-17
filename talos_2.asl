@@ -244,10 +244,17 @@ init {
         ));
     }
 
+    // If we're attaching as the game launches, the pointer will still be invalid
+    // Temporarily switch to set zero or null, so that this still clears the inital update flag
+    // This ensures we get a changed event once the pointer is actually filled
+    vars.lastPlayedWorld.FailAction = MemoryWatcher.ReadFailAction.SetZeroOrNull;
     vars.lastPlayedWorld.Update(game);
+    vars.lastPlayedWorld.FailAction = MemoryWatcher.ReadFailAction.DontUpdate;
+
     vars.lastSplittableWorld = vars.VALID_LEVELS_TO_SPLIT_ON.Contains(vars.lastPlayedWorld.Current)
                             ? vars.lastPlayedWorld.Current
                             : null;
+
 #endregion
 
     var logPath = (
