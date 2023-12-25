@@ -280,6 +280,36 @@ init {
 
 #endregion
 
+#region Loading
+    ptr = scanner.Scan(new SigScanTarget(18,
+        "41 BE 01000000",               // mov r14d, 00000001
+        "F0 44 0FC1 35 ????????",       // lock xadd [Talos2-Win64-Shipping.AK::SoundEngine::g_PlayingID], r14d
+        "4C 8B 3D ????????"             // mov r15, [Talos2-Win64-Shipping.g_pRegistryMgr+10]   <---
+    ));
+    if (ptr == IntPtr.Zero) {
+        print("Could not find loading pointer!");
+        version = "ERROR";
+        return;
+    } else {
+        var baseAddr = IntPtr.Add(ptr, game.ReadValue<int>(ptr) + 4);
+
+        // This pointer is set to -96f when in a blocking load, and 0 otherwise - assume it's some
+        // UI offset. Has worked across multiple people with different resolutions + other settings.
+        // Note it does NOT work for "catchup loads", when you're in the VTOL/capsule and it didn't
+        // finish loading in time
+
+        // Darkid has validated these offsets, though they aren't UObjects or anything we can tell
+        // the exact meaning of
+        vars.loadingUiOffset = new MemoryWatcher<float>(new DeepPointer(
+            baseAddr, 0x98, 0x30, 0xB0, 0x18, 0x8
+        )) {
+            FailAction = MemoryWatcher.ReadFailAction.SetZeroOrNull
+        };
+    }
+
+    vars.isLoading = (Func<bool>)(() => Math.Abs(vars.loadingUiOffset.Current - -96f) < 0.0001);
+#endregion
+
 #region Athena Cutscene
     ptr = scanner.Scan(new SigScanTarget(5,
         "33 D2",                        // xor edx, edx
@@ -310,15 +340,12 @@ init {
     var stream = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
     stream.Seek(0, SeekOrigin.End);
     vars.reader = new StreamReader(stream);
-
-    vars.isLoading = false;
 }
 
 exit {
     vars.reader.Close();
     vars.reader = null;
 
-    vars.isLoading = true;
     timer.IsGameTimePaused = true;
 }
 
@@ -328,6 +355,7 @@ update {
     vars.boolVariableCount.Update(game);
     vars.utopiaPuzzleCount.Update(game);
     vars.achievementCount.Update(game);
+    vars.loadingUiOffset.Update(game);
     vars.athenaCutscene.Update(game);
 
     if (vars.gWorldFName.Changed) {
@@ -449,6 +477,15 @@ update {
         }
     }
 
+    if (vars.loadingUiOffset.Changed) {
+        print(
+            "Loading flag changed from "
+            + vars.loadingUiOffset.Old.ToString()
+            + " to "
+            + vars.loadingUiOffset.Current.ToString()
+        );
+    }
+
     // Paranoid about this one so adding a bunch of extra checks
     if (settings["experimental_split_athena"]
         && vars.athenaCutscene.Changed
@@ -502,48 +539,15 @@ update {
             vars.TimerModel.Start();
             continue;
         }
-
-        // This line is printed at the very start of a load, breakpointed the exact call that prints
-        // to confirm, so we can be confident in it
-        // Problem is, it only happens on RCs and going main menu <-> game, not between levels
-        if (line.StartsWith("LogLoad: LoadMap: ")) {
-            print("Map loaded, starting load");
-            vars.isLoading = true;
-            continue;
-        }
-
-        // Which leads us to this hacky trigger: seems they change the async load time limit during
-        // a load. This happens at a bunch of times which aren't appropriate for starting a load,
-        // but we can use it to detect when to end - spurious activations won't do much.
-        var asyncMatch = vars.RE_ASYNC_TIME_LIMIT.Match(line);
-        if (asyncMatch.Success) {
-            // Seen values of 10.0, 15.0 when starting loading, and 0.5, 3.0 on stopping
-            // Also seen some mystery 7.0s I haven't been able to place - so use 7.5 to be safe,
-            // treat them as ending a load
-            var timeout = Convert.ToDouble(asyncMatch.Groups[1].Value);
-            if (timeout < 7.0) {
-                print("Decreased async loading time limit, stopping load");
-                vars.isLoading = false;
-            }
-            continue;
-        }
-
-        // This one's a fallback: we'll rarely hit it, but when we do we're definitely in a load,
-        // better late than never
-        if (line.StartsWith("LogStreaming: Warning: IsTimeLimitExceeded: ProcessAsyncLoadingFromGameThread")) {
-            print("Exceeded async load time limit, starting load");
-            vars.isLoading = true;
-            continue;
-        }
     }
 }
 
 isLoading {
-    return vars.isLoading;
+    return vars.isLoading();
 }
 
 onStart {
-    if (vars.isLoading) {
+    if (vars.isLoading()) {
         timer.IsGameTimePaused = true;
         timer.SetGameTime(TimeSpan.Zero);
     }
