@@ -17,6 +17,8 @@ startup {
     settings.Add("split_mega_north", false, "Megastructure North lasers", "split_header");
     settings.Add("split_mega_south", false, "Megastructure South pins", "split_header");
 
+    settings.Add("experimental_split_athena", false, "(Experimental) Starting the Athena cutscene", "split_header");
+
     settings.Add("reset_header", true, "Reset on ...");
     settings.Add("reset_boot_cutscene", true, "Skipping the first cutscene in Booting Process", "reset_header");
     settings.Add("reset_main_menu", false, "Returning to the Main Menu", "reset_header");
@@ -233,10 +235,10 @@ init {
 
 #region Save data
     ptr = scanner.Scan(new SigScanTarget(3,
-        "48 8B 0D ????????",        // mov rcx, [Talos2-Win64-Shipping.exe+88C2680]                 <---
-        "48 89 BC 24 ????????",     // mov [rsp+000000A0], rdi
-        "48 85 C9",                 // test rcx, rcx
-        "0F84 ????????"             // je Talos2-Win64-Shipping.exe+5193317
+        "48 8B 0D ????????",            // mov rcx, [Talos2-Win64-Shipping.exe+88C2680]         <---
+        "48 89 BC 24 ????????",         // mov [rsp+000000A0], rdi
+        "48 85 C9",                     // test rcx, rcx
+        "0F84 ????????"                 // je Talos2-Win64-Shipping.exe+5193317
     ));
     if (ptr == IntPtr.Zero) {
         print("Could not find GEngine pointer!");
@@ -278,6 +280,29 @@ init {
 
 #endregion
 
+#region Athena Cutscene
+    ptr = scanner.Scan(new SigScanTarget(5,
+        "33 D2",                        // xor edx, edx
+        "48 8D 0D ????????",            // lea rcx, [Talos2-Win64-Shipping.exe+85D92B0]         <---
+        "E8 ????????",                  // call Talos2-Win64-Shipping.exe+BD4E80
+        "48 8D 15 ????????",            // lea rdx, [Talos2-Win64-Shipping.exe+85D92B0]         <---
+        "48 8B CB"                      // mov rcx, rbx
+    ));
+    if (ptr == IntPtr.Zero) {
+        print("Could not find Athena cutscene pointer!");
+        version = "ERROR";
+        return;
+    } else {
+        var baseAddr = IntPtr.Add(ptr, game.ReadValue<int>(ptr) + 4);
+
+        // This is really ugly
+        // No we don't know what most of these offsets are
+        vars.athenaCutscene = new MemoryWatcher<float>(new DeepPointer(
+            baseAddr, 0x0, 0x8F8, 0x320, 0x180, 0x8, 0x28, 0x1C0, 0x10, 0xC0
+        ));
+    }
+#endregion
+
     var logPath = (
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
         + "\\Talos2\\Saved\\Logs\\Talos2.log"
@@ -303,6 +328,7 @@ update {
     vars.boolVariableCount.Update(game);
     vars.utopiaPuzzleCount.Update(game);
     vars.achievementCount.Update(game);
+    vars.athenaCutscene.Update(game);
 
     if (vars.gWorldFName.Changed) {
         var newWorld = vars.FNameToString(vars.gWorldFName.Current);
@@ -421,6 +447,22 @@ update {
         if (settings["split_achievements"] && vars.achievementCount.Current > vars.achievementCount.Old) {
             vars.TimerModel.Split();
         }
+    }
+
+    // Paranoid about this one so adding a bunch of extra checks
+    if (settings["experimental_split_athena"]
+        && vars.athenaCutscene.Changed
+        // Must be in athena temple
+        && vars.lastPlayedWorld.Current == "AthenaTemple"
+        // Must have changed from aprox 0
+        && Math.Abs(vars.athenaCutscene.Old - 0) < 0.0001
+        // New value must be larger
+        && vars.athenaCutscene.Old < vars.athenaCutscene.Current
+        // But not by more than a tenth of a second
+        && vars.athenaCutscene.Current < (vars.athenaCutscene.Old + 0.1)
+    ) {
+        print("Splitting for athena cutscene start");
+        vars.TimerModel.Split();
     }
 
     while (vars.reader != null) {
