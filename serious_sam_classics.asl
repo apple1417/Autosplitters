@@ -9,8 +9,10 @@
 */
 
 state("DedicatedServer") {}
+state("DedicatedServer_Custom") {}
 state("DedicatedServerGameSpy") {}
 state("SeriousSam") {}
+state("SeriousSam_Custom") {}
 state("SeriousSamGamespy") {}
 
 startup {
@@ -99,6 +101,7 @@ init {
 
     var baseGame = version;
     var isSteamVersion = true;
+    var isClassicsPatch = false;
 
     if (vars.isDedicated) {
         version = "Dedicated " + version;
@@ -112,6 +115,11 @@ init {
     if (exe.ModuleName.EndsWith("Gamespy.exe")) {
         version += " GameSpy";
         isSteamVersion = false;
+    }
+    if (exe.ModuleName.EndsWith("_Custom.exe")) {
+        version += " Classics Patch";
+        isSteamVersion = false;
+        isClassicsPatch = true;
     }
 
     // Find all the pointers we need
@@ -128,29 +136,41 @@ init {
             "8B 0D ????????",           // mov ecx,[SeriousSam.exe+9BA20]   <--- _pGame
             "8B 01"                     // mov eax,[ecx]
         ));
+    } else if (isClassicsPatch) {
+        ptr = exeScanner.Scan(new SigScanTarget(2,
+            "8B 15 ????????",       // mov edx, [SeriousSam_Custom.exe+41080]   <--- _pGame
+            "8B 0A",                // mov ecx, [edx]
+            "8B 01",                // mov eax, [ecx]
+            "FF 50 ??",             // call dword ptr [eax+60]
+            "89 1D ????????"        // mov [SeriousSam_Custom.exe+54784], ebx
+        ));
+    } else if (isSteamVersion) {
+        ptr = exeScanner.Scan(new SigScanTarget(13,
+            "83 C4 04",             // add esp,04
+            "83 3D ???????? 00",    // cmp dword ptr [SeriousSam.exe+9896C],00
+            "74 ??",                // je SeriousSam.exe+346FC
+            "A1 ????????",          // mov eax,[SeriousSam.exe+98D4C]   <--- _pGame
+            "8B 10"                 // mov edx,[eax]
+        ));
     } else {
-        if (isSteamVersion) {
-            ptr = exeScanner.Scan(new SigScanTarget(13,
-                "83 C4 04",             // add esp,04
-                "83 3D ???????? 00",    // cmp dword ptr [SeriousSam.exe+9896C],00
-                "74 ??",                // je SeriousSam.exe+346FC
-                "A1 ????????",          // mov eax,[SeriousSam.exe+98D4C]   <--- _pGame
-                "8B 10"                 // mov edx,[eax]
-            ));
-        } else {
-            ptr = exeScanner.Scan(new SigScanTarget(17,
-                "83 c4 04",             // add esp,0x4
-                "39 1d ????????",       // cmp DWORD PTR ds:0x442bf4,ebx
-                "0f 84 ????????",       // je 0x4d85
-                "8b 0d ????????",       // mov ecx,DWORD PTR ds:0x442fc4    <--- _pGame
-                "8b 11"                 // mov edx,DWORD PTR [ecx]
-            ));
-        }
+        ptr = exeScanner.Scan(new SigScanTarget(17,
+            "83 c4 04",             // add esp,0x4
+            "39 1d ????????",       // cmp DWORD PTR ds:0x442bf4,ebx
+            "0f 84 ????????",       // je 0x4d85
+            "8b 0d ????????",       // mov ecx,DWORD PTR ds:0x442fc4    <--- _pGame
+            "8b 11"                 // mov edx,DWORD PTR [ecx]
+        ));
     }
     if (ptr == IntPtr.Zero && !vars.isDedicated) {
         print("Could not find pointer to _pGame.gm_csComputerState!");
         version = "Error";
         return false;
+    } else if (isClassicsPatch) {
+        vars.computerState = new MemoryWatcher<int>(new DeepPointer(
+            game.ReadValue<int>(ptr) - (int)exe.BaseAddress,
+            0x0, 0x8
+        ));
+        vars.allPointers.Add(vars.computerState);
     } else {
         vars.computerState = new MemoryWatcher<int>(new DeepPointer(
             game.ReadValue<int>(ptr) - (int)exe.BaseAddress,
@@ -173,24 +193,33 @@ init {
             "3D ????????"               // cmp eax,SeriousSam.exe+952D0     <--- &_pGUIM->gmMainMenu
         ));
         vars.mainMenu = game.ReadValue<int>(ptr + 8);
+    } else if (isClassicsPatch) {
+        ptr = exeScanner.Scan(new SigScanTarget(7,
+            "8B 15 ????????",           // mov edx, [SeriousSam_Custom.exe+547D0]   <--- _pGUIM
+            "A1 ????????",              // mov eax, [SeriousSam_Custom.exe+547B0]   <--- pgmCurrentMenu
+            "8B 35 ????????",           // mov esi, [SeriousSam_Custom.exe+54784]
+            "83 C4 04",                 // add esp, 04
+            "8D 8A ????????"            // lea ecx, [edx+00000200]                  <--- &x->gmMainMenu
+        ));
+        var _pGUIM = game.ReadPointer(ptr - 5);
+        var offset = game.ReadValue<int>(ptr + 15);
+        vars.mainMenu = game.ReadValue<int>(_pGUIM) + offset;
+    } else if (isSteamVersion) {
+        ptr = exeScanner.Scan(new SigScanTarget(5,
+            // Technically this matches something in engine too, but we're using the exe scanner :)
+            "83 C4 04",                 // add esp,04
+            "81 3D ???????? ????????"   // cmp [SeriousSam.exe+989A4],SeriousSam.exe+94490
+                                        //         pgmCurrentMenu      &_pGUIM->gmMainMenu
+        ));
+        vars.mainMenu = game.ReadValue<int>(ptr + 4);
     } else {
-        if (isSteamVersion) {
-            ptr = exeScanner.Scan(new SigScanTarget(5,
-                // Technically this matches something in engine too, but we're using the exe scanner :)
-                "83 C4 04",                 // add esp,04
-                "81 3D ???????? ????????"   // cmp [SeriousSam.exe+989A4],SeriousSam.exe+94490
-                                            //         pgmCurrentMenu      &_pGUIM->gmMainMenu
-            ));
-            vars.mainMenu = game.ReadValue<int>(ptr + 4);
-        } else {
-            ptr = exeScanner.Scan(new SigScanTarget(1,
-                "a1 ????????",              // mov eax, ds:0x442c2c             <--- pgmCurrentMenu
-                "8b 0d ????????",           // mov ecx, DWORD PTR ds:0x442bf4
-                "83 c4 04",                 // add esp, 0x4
-                "3d ????????"               // cmp eax, 0x43e718                <--- &_pGUIM->gmMainMenu
-            ));
-            vars.mainMenu = game.ReadValue<int>(ptr + 14);
-        }
+        ptr = exeScanner.Scan(new SigScanTarget(1,
+            "a1 ????????",              // mov eax, ds:0x442c2c             <--- pgmCurrentMenu
+            "8b 0d ????????",           // mov ecx, DWORD PTR ds:0x442bf4
+            "83 c4 04",                 // add esp, 0x4
+            "3d ????????"               // cmp eax, 0x43e718                <--- &_pGUIM->gmMainMenu
+        ));
+        vars.mainMenu = game.ReadValue<int>(ptr + 14);
     }
     if (ptr == IntPtr.Zero && !vars.isDedicated) {
         print("Could not find menu pointers!");
@@ -202,7 +231,6 @@ init {
         ));
         vars.allPointers.Add(vars.currentMenu);
     }
-
 
     /*
       Finding CSoundLibrary._bMuted through Engine.SoundLibrary::Mute
