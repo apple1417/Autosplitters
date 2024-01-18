@@ -247,23 +247,37 @@ init {
     } else {
         var baseAddr = IntPtr.Add(ptr, game.ReadValue<int>(ptr) + 4);
 
+        ptr = scanner.Scan(new SigScanTarget(3,
+            "48 8B 8F ????????",        // mov rcx, [rdi+000001D0]                              <---
+            "48 85 C9",                 // test rcx, rcx
+            "74 ??",                    // je Talos2-Win64-Shipping.exe+25EE729
+            "E8 ????????",              // call Talos2-Win64-Shipping.exe+25E45F0
+            "48 63 83 ????????"         // movsxd rax, dword ptr [rbx+000005D0]
+        ));
+        if (ptr == IntPtr.Zero) {
+            print("Could not find SaveGame offset!");
+            version = "ERROR";
+            return;
+        }
+        var saveGameOffset = game.ReadValue<int>(ptr);
+
         vars.lastPlayedWorld = new StringWatcher(new DeepPointer(
-            baseAddr, 0xFC0, 0x1C0, 0x28, 0x0, 0x48, 0x0
+            baseAddr, 0xFC0, saveGameOffset, 0x28, 0x0, 0x48, 0x0
         ), ReadStringType.UTF16, 64);
 
         vars.boolVariablesPtr = new DeepPointer(
-            baseAddr, 0xFC0, 0x1C0, 0x28, 0x0, 0xC8, 0x0
+            baseAddr, 0xFC0, saveGameOffset, 0x28, 0x0, 0xC8, 0x0
         );
         vars.boolVariableCount = new MemoryWatcher<int>(new DeepPointer(
-            baseAddr, 0xFC0, 0x1C0, 0x28, 0x0, 0xD0
+            baseAddr, 0xFC0, saveGameOffset, 0x28, 0x0, 0xD0
         ));
 
         vars.utopiaPuzzleCount = new MemoryWatcher<int>(new DeepPointer(
-            baseAddr, 0xFC0, 0x1C0, 0x28, 0x0, 0x208
+            baseAddr, 0xFC0, saveGameOffset, 0x28, 0x0, 0x208
         ));
 
         vars.achievementCount = new MemoryWatcher<int>(new DeepPointer(
-            baseAddr, 0xFC0, 0x1C0, 0x60
+            baseAddr, 0xFC0, saveGameOffset, 0x60
         ));
     }
 
@@ -525,9 +539,8 @@ update {
 
         // Handle all log parsing in one place
 
-        if (settings["start_skip_bootup"]
-            // Not going to trust the FName index to be constant, but the hash within the name should be
-            && line.StartsWith("LogLevelSequence: Starting new camera cut: 'CameraActor_UAID_00FFDAACEB7F9A9001_")
+        // Not going to trust the FName index to be constant, but the hash within the name should be
+        if (line.StartsWith("LogLevelSequence: Starting new camera cut: 'CameraActor_UAID_00FFDAACEB7F9A9001_")
             && vars.lastPlayedWorld.Current == "OriginalSim_WP"
         ) {
             if (settings["reset_boot_cutscene"] && timer.CurrentPhase != TimerPhase.Ended ) {
@@ -535,8 +548,10 @@ update {
                 vars.TimerModel.Reset();
             }
 
-            print("Starting run due to bootup cutscene end");
-            vars.TimerModel.Start();
+            if (settings["start_skip_bootup"]) {
+                print("Starting run due to bootup cutscene end");
+                vars.TimerModel.Start();
+            }
             continue;
         }
     }
