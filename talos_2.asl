@@ -155,6 +155,7 @@ startup {
     };
 
     vars.TimerModel = new TimerModel(){ CurrentState = timer };
+    vars.reader = null;
 }
 
 init {
@@ -301,7 +302,7 @@ init {
         "4C 8B 3D ????????"             // mov r15, [Talos2-Win64-Shipping.g_pRegistryMgr+10]   <---
     ));
     if (ptr == IntPtr.Zero) {
-        print("Could not find loading pointer!");
+        print("Could not find loading ui offset pointer!");
         version = "ERROR";
         return;
     } else {
@@ -309,8 +310,8 @@ init {
 
         // This pointer is set to -96f when in a blocking load, and 0 otherwise - assume it's some
         // UI offset. Has worked across multiple people with different resolutions + other settings.
-        // Note it does NOT work for "catchup loads", when you're in the VTOL/capsule and it didn't
-        // finish loading in time
+        // Unfortuantly, it does NOT work for "soft loads", where something didn't finish loading in
+        // time and it pauses and blurs the screen while waiting on it to catch up
 
         // Darkid has validated these offsets, though they aren't UObjects or anything we can tell
         // the exact meaning of
@@ -321,7 +322,40 @@ init {
         };
     }
 
-    vars.isLoading = (Func<bool>)(() => Math.Abs(vars.loadingUiOffset.Current - -96f) < 0.0001);
+    ptr = scanner.Scan(new SigScanTarget(3,
+        "48 8D 0D ????????",            // lea rcx, [Talos2-Win64-Shipping.exe+8A87158]         <---
+        "E8 ????????",                  // call Talos2-Win64-Shipping.exe+B77000
+        "48 8B 05 ????????",            // mov rax, [Talos2-Win64-Shipping.exe+8A87158]         <---
+        "48 89 34 ??",                  // mov [rax+rbx*8], rsi
+        "0FB6 45 ??"                    // movzx eax, byte ptr [rbp+67]
+    ));
+    if (ptr == IntPtr.Zero) {
+        print("Could not find streaming setting level pointer!");
+        version = "ERROR";
+        return;
+    } else {
+        var baseAddr = IntPtr.Add(ptr, game.ReadValue<int>(ptr) + 4);
+
+        // This points at ULevelHolderSubsystem::CurrentStreamingSettingsLevel
+        // 0 = L0_PrioritizeGameplay
+        // 1 = L1_GameplayTransition
+        // 2 = L2_SleepTransition
+        // 3 = L3_CapsuleTransition
+        // 4 = L4_NotInteractive
+
+        // Levels 3 and 4 are only set during loading screens (it stays at 0 during capsule dialog)
+        // Unfortuantly, while it's perfect for soft loads, during "hard loads" (i.e. RCs), it
+        // triggers a bit late, hence needing both flags
+
+        // None of these offsets point at UObjects (except the last), and they haven't been directly
+        // validated, but they all appear to work
+        vars.streamingSettingsLevel = new MemoryWatcher<int>(new DeepPointer(
+            baseAddr, 0x20, 0x8, 0x230, 0x160
+        ));
+    }
+
+    vars.isLoading = (Func<bool>)(() => vars.streamingSettingsLevel.Current >= 3
+                                        || Math.Abs(vars.loadingUiOffset.Current - -96f) < 0.0001);
 #endregion
 
 #region Athena Cutscene
@@ -357,19 +391,26 @@ init {
 }
 
 exit {
-    vars.reader.Close();
+    if (vars.reader != null) {
+        vars.reader.Close();
+    }
     vars.reader = null;
 
     timer.IsGameTimePaused = true;
 }
 
 update {
+    if (version == "ERROR") {
+        return;
+    }
+
     vars.gWorldFName.Update(game);
     vars.lastPlayedWorld.Update(game);
     vars.boolVariableCount.Update(game);
     vars.utopiaPuzzleCount.Update(game);
     vars.achievementCount.Update(game);
     vars.loadingUiOffset.Update(game);
+    vars.streamingSettingsLevel.Update(game);
     vars.athenaCutscene.Update(game);
 
     if (vars.gWorldFName.Changed) {
@@ -497,6 +538,15 @@ update {
             + vars.loadingUiOffset.Old.ToString()
             + " to "
             + vars.loadingUiOffset.Current.ToString()
+        );
+    }
+
+    if (vars.streamingSettingsLevel.Changed) {
+        print(
+            "Streaming setting level changed from "
+            + vars.streamingSettingsLevel.Old.ToString()
+            + " to "
+            + vars.streamingSettingsLevel.Current.ToString()
         );
     }
 
