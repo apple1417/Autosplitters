@@ -4,6 +4,7 @@ startup {
     settings.Add("start_header", true, "Start the run on ...");
     settings.Add("start_skip_bootup", true, "Skipping the first cutscene in Booting Process", "start_header");
     settings.Add("start_any_level", false, "Loading into any level", "start_header");
+    settings.Add("start_no_cheating", true, "Unless cheats are enabled", "start_header");
 
     settings.Add("split_header", true, "Split on ...");
     settings.Add("split_levels", true, "Level transitions", "split_header");
@@ -248,6 +249,10 @@ init {
     } else {
         var baseAddr = IntPtr.Add(ptr, game.ReadValue<int>(ptr) + 4);
 
+        vars.cheatManager = new MemoryWatcher<long>(new DeepPointer(
+            baseAddr, 0xFC0, 0x38, 0x0, 0x30, 0x420
+        ));
+
         ptr = scanner.Scan(new SigScanTarget(3,
             "48 8B 8F ????????",        // mov rcx, [rdi+000001D0]                              <---
             "48 85 C9",                 // test rcx, rcx
@@ -405,6 +410,7 @@ update {
     }
 
     vars.gWorldFName.Update(game);
+    vars.cheatManager.Update(game);
     vars.lastPlayedWorld.Update(game);
     vars.boolVariableCount.Update(game);
     vars.utopiaPuzzleCount.Update(game);
@@ -428,8 +434,12 @@ update {
             && vars.currentGWorld == "MainMenu2"
             && newWorld == "Holder"
         ) {
-            print("Starting due to level load");
-            vars.TimerModel.Start();
+            if (vars.cheatManager.Current == 0 || !settings["start_no_cheating"]) {
+                print("Starting due to level load");
+                vars.TimerModel.Start();
+            } else {
+                print("Not starting due to cheats");
+            }
         }
 
         vars.currentGWorld = newWorld;
@@ -598,10 +608,15 @@ update {
                 vars.TimerModel.Reset();
             }
 
-            if (settings["start_skip_bootup"]) {
-                print("Starting run due to bootup cutscene end");
-                vars.TimerModel.Start();
+            if (vars.cheatManager.Current == 0 || !settings["start_no_cheating"]) {
+                if (settings["start_skip_bootup"]) {
+                    print("Starting run due to bootup cutscene end");
+                    vars.TimerModel.Start();
+                }
+            } else {
+                print("Not starting due to cheats");
             }
+
             continue;
         }
     }
