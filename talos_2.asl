@@ -17,8 +17,7 @@ startup {
     settings.Add("split_mega_east", false, "Megastructure East lasers", "split_header");
     settings.Add("split_mega_north", false, "Megastructure North lasers", "split_header");
     settings.Add("split_mega_south", false, "Megastructure South pins", "split_header");
-
-    settings.Add("experimental_split_athena", false, "(Experimental) Starting the Athena cutscene", "split_header");
+    settings.Add("split_athena", true, "Starting the Athena cutscene", "split_header");
 
     settings.Add("reset_header", true, "Reset on ...");
     settings.Add("reset_boot_cutscene", true, "Skipping the first cutscene in Booting Process", "reset_header");
@@ -155,6 +154,37 @@ startup {
         }),
     };
 
+    vars.PLAYER_STATE_NAMES = new List<string>() {
+        "Unrestricted",
+        "Interacting",
+        "InDialogue",
+        "VisionTransition",
+        "InVision",
+        "InPDA",
+        "Dead",
+        "ShuttingDown",
+        "Loading",
+        "ResettingGameplay",
+        "InVehicle",
+        "Cutscene",
+        "FirstPersonCutsequence",
+        "InElevatorBeam",
+        "OnLadder",
+        "InWater",
+        "Underwater",
+        "InOldTerminal",
+        "Scanning",
+        "Dreaming",
+        "NoMovement",
+        "Teleporting",
+        "InElevator",
+        "TetroBridge",
+        "PhotoMode",
+        "InArranger",
+        "InGravityBeam",
+        "Benchmarking",
+    };
+
     vars.TimerModel = new TimerModel(){ CurrentState = timer };
     vars.reader = null;
 }
@@ -251,6 +281,9 @@ init {
 
         vars.cheatManager = new MemoryWatcher<long>(new DeepPointer(
             baseAddr, 0xFC0, 0x38, 0x0, 0x30, 0x420
+        ));
+        vars.playerState = new MemoryWatcher<int>(new DeepPointer(
+            baseAddr, 0xFC0, 0x38, 0x0, 0x30, 0x8B8
         ));
 
         ptr = scanner.Scan(new SigScanTarget(3,
@@ -363,29 +396,6 @@ init {
                                         || Math.Abs(vars.loadingUiOffset.Current - -96f) < 0.0001);
 #endregion
 
-#region Athena Cutscene
-    ptr = scanner.Scan(new SigScanTarget(5,
-        "33 D2",                        // xor edx, edx
-        "48 8D 0D ????????",            // lea rcx, [Talos2-Win64-Shipping.exe+85D92B0]         <---
-        "E8 ????????",                  // call Talos2-Win64-Shipping.exe+BD4E80
-        "48 8D 15 ????????",            // lea rdx, [Talos2-Win64-Shipping.exe+85D92B0]         <---
-        "48 8B CB"                      // mov rcx, rbx
-    ));
-    if (ptr == IntPtr.Zero) {
-        print("Could not find Athena cutscene pointer!");
-        version = "ERROR";
-        return;
-    } else {
-        var baseAddr = IntPtr.Add(ptr, game.ReadValue<int>(ptr) + 4);
-
-        // This is really ugly
-        // No we don't know what most of these offsets are
-        vars.athenaCutscene = new MemoryWatcher<float>(new DeepPointer(
-            baseAddr, 0x0, 0x8F8, 0x320, 0x180, 0x8, 0x28, 0x1C0, 0x10, 0xC0
-        ));
-    }
-#endregion
-
     var logPath = (
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
         + "\\Talos2\\Saved\\Logs\\Talos2.log"
@@ -411,13 +421,13 @@ update {
 
     vars.gWorldFName.Update(game);
     vars.cheatManager.Update(game);
+    vars.playerState.Update(game);
     vars.lastPlayedWorld.Update(game);
     vars.boolVariableCount.Update(game);
     vars.utopiaPuzzleCount.Update(game);
     vars.achievementCount.Update(game);
     vars.loadingUiOffset.Update(game);
     vars.streamingSettingsLevel.Update(game);
-    vars.athenaCutscene.Update(game);
 
     if (vars.gWorldFName.Changed) {
         var newWorld = vars.FNameToString(vars.gWorldFName.Current);
@@ -443,6 +453,24 @@ update {
         }
 
         vars.currentGWorld = newWorld;
+    }
+
+    if (vars.playerState.Changed) {
+        var oldState = vars.playerState.Old < vars.PLAYER_STATE_NAMES.Count
+                        ? vars.PLAYER_STATE_NAMES[vars.playerState.Old]
+                        : ("Unknown State " + vars.playerState.Old.ToString("X"));
+        var newState = vars.playerState.Current < vars.PLAYER_STATE_NAMES.Count
+                        ? vars.PLAYER_STATE_NAMES[vars.playerState.Current]
+                        : ("Unknown State " + vars.playerState.Current.ToString("X"));
+        print("Player state changed from " + oldState + " to " + newState);
+
+        if (settings["split_athena"]
+            && vars.lastPlayedWorld.Current == "AthenaTemple"
+            && newState == "Cutscene"
+        ) {
+            print("Splitting for athena cutscene start");
+            vars.TimerModel.Split();
+        }
     }
 
     if (vars.lastPlayedWorld.Changed) {
@@ -558,22 +586,6 @@ update {
             + " to "
             + vars.streamingSettingsLevel.Current.ToString()
         );
-    }
-
-    // Paranoid about this one so adding a bunch of extra checks
-    if (settings["experimental_split_athena"]
-        && vars.athenaCutscene.Changed
-        // Must be in athena temple
-        && vars.lastPlayedWorld.Current == "AthenaTemple"
-        // Must have changed from aprox 0
-        && Math.Abs(vars.athenaCutscene.Old - 0) < 0.0001
-        // New value must be larger
-        && vars.athenaCutscene.Old < vars.athenaCutscene.Current
-        // But not by more than a tenth of a second
-        && vars.athenaCutscene.Current < (vars.athenaCutscene.Old + 0.1)
-    ) {
-        print("Splitting for athena cutscene start");
-        vars.TimerModel.Split();
     }
 
     while (vars.reader != null) {
