@@ -22,6 +22,7 @@ startup {
 #endregion
 
     timer.IsGameTimePaused = true;
+    vars.gameRestart = false;
 
     vars.epicProcessTimeout = DateTime.MaxValue;
     vars.cts = new CancellationTokenSource();
@@ -720,6 +721,7 @@ exit {
     vars.cts.Cancel();
     vars.unknownVersionTimeout = DateTime.MaxValue;
     timer.IsGameTimePaused = true;
+    vars.gameRestart = true;
 }
 
 update {
@@ -801,6 +803,13 @@ isLoading {
         if (timer.CurrentAttemptDuration.TotalSeconds < 0.1) {
             timer.SetGameTime(TimeSpan.Zero);
         }
+
+        // On reaching the first "real" load, we can say the restart's finished
+        vars.gameRestart = false;
+        return true;
+    }
+
+    if (vars.gameRestart) {
         return true;
     }
 
