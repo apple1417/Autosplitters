@@ -2,7 +2,7 @@ state("Talos2-Win64-Shipping") {}
 
 startup {
     settings.Add("start_header", true, "Start the run on ...");
-    settings.Add("start_skip_bootup", true, "Skipping the first cutscene in Booting Process", "start_header");
+    settings.Add("start_skip_first_cutscene", true, "Skipping the first cutscene", "start_header");
     settings.Add("start_any_level", false, "Loading into any level", "start_header");
     settings.Add("start_no_cheating", true, "Unless cheats are enabled", "start_header");
 
@@ -17,11 +17,12 @@ startup {
     settings.Add("split_mega_east", false, "Megastructure East lasers", "split_header");
     settings.Add("split_mega_north", false, "Megastructure North lasers", "split_header");
     settings.Add("split_mega_south", false, "Megastructure South pins", "split_header");
-    settings.Add("split_athena", true, "Starting the Athena cutscene", "split_header");
+    settings.Add("split_fast_travel", false, "Unlocking DLC Fast Travels", "split_header");
+    settings.Add("split_final_cutscene", true, "Triggering the final cutscene", "split_header");
 
     settings.Add("reset_header", true, "Reset on ...");
-    settings.Add("reset_boot_cutscene", true, "Skipping the first cutscene in Booting Process", "reset_header");
-    settings.Add("reset_main_menu", false, "Returning to the Main Menu", "reset_header");
+    settings.Add("reset_skip_first_cutscene", false, "Skipping the first cutscene", "reset_header");
+    settings.Add("reset_main_menu", true, "Returning to the Main Menu", "reset_header");
 
     vars.RE_LOGLINE = new System.Text.RegularExpressions.Regex(@"^\[.+?\]\[.+?\](.+)$");
     vars.RE_ASYNC_TIME_LIMIT = new System.Text.RegularExpressions.Regex(@"s.AsyncLoadingTimeLimit = ""(\d+(.\d+)?)""");
@@ -63,6 +64,9 @@ startup {
             "W1:TowerActive",
             "W2:TowerActive",
             "W3:TowerActive",
+            "DLC2.LighthouseGreen:Activated",
+            "DLC2.LighthouseRed:Activated",
+            "DLC2.LighthouseBlue:Activated",
         }),
         new Tuple<string, HashSet<string>>("split_puzzles", new HashSet<string>() {
             "OriginalSim:Puzzle0", "OriginalSim:Puzzle1", "OriginalSim:Puzzle2", "OriginalSim:Puzzle3",
@@ -92,6 +96,21 @@ startup {
             "W2:Puzzle6", "W2:Puzzle7", "W2:Puzzle8", "W2:Puzzle9", "W2:Puzzle10",
             "W3:Puzzle0", "W3:Puzzle1", "W3:Puzzle2", "W3:Puzzle3", "W3:Puzzle4", "W3:Puzzle5",
             "W3:Puzzle6", "W3:Puzzle7", "W3:Puzzle8", "W3:Puzzle9", "W3:Puzzle10",
+            "DLC1:Puzzle0", "DLC1:Puzzle1", "DLC1:Puzzle2", "DLC1:Puzzle3", "DLC1:Puzzle4",
+            "DLC1:Puzzle5", "DLC1:Puzzle6", "DLC1:Puzzle7", "DLC1:Puzzle8", "DLC1:Puzzle9",
+            "DLC1:Puzzle10", "DLC1:Puzzle11", "DLC1:Puzzle12", "DLC1:Puzzle13", "DLC1:Puzzle14",
+            "DLC1:Puzzle15", "DLC1:Puzzle16", "DLC1:Puzzle17", "DLC1:Puzzle18", "DLC1:Puzzle19",
+            "DLC2:Puzzle0", "DLC2:Puzzle1", "DLC2:Puzzle2", "DLC2:Puzzle3", "DLC2:Puzzle4",
+            "DLC2:Puzzle5", "DLC2:Puzzle6", "DLC2:Puzzle7", "DLC2:Puzzle8", "DLC2:Puzzle9",
+            "DLC2:Puzzle10", "DLC2:Puzzle11", "DLC2:Puzzle12", "DLC2:Puzzle13", "DLC2:Puzzle14",
+            "DLC2:Puzzle15", "DLC2:Puzzle16", "DLC2:Puzzle17", "DLC2:Puzzle18", "DLC2:Puzzle19",
+            "DLC2:Puzzle20", "DLC2:Puzzle21", "DLC2:Puzzle22", "DLC2:Puzzle23", "DLC2:Puzzle24",
+            "DLC2:Puzzle25", "DLC2:Puzzle26", "DLC2:Puzzle27", "DLC2:Puzzle28", "DLC2:Puzzle29",
+            "DLC3:Puzzle0", "DLC3:Puzzle1", "DLC3:Puzzle2", "DLC3:Puzzle3", "DLC3:Puzzle4",
+            "DLC3:Puzzle5", "DLC3:Puzzle6", "DLC3:Puzzle7", "DLC3:Puzzle8", "DLC3:Puzzle9",
+            "DLC3:Puzzle10", "DLC3:Puzzle11", "DLC3:Puzzle12", "DLC3:Puzzle13", "DLC3:Puzzle14",
+            "DLC3:Puzzle15", "DLC3:Puzzle16", "DLC3:Puzzle17", "DLC3:Puzzle18", "DLC3:Puzzle19",
+            "DLC3:Puzzle20", "DLC3:Puzzle21", "DLC3:Puzzle22", "DLC3:Puzzle23",
         }),
         new Tuple<string, HashSet<string>>("split_stars", new HashSet<string>() {
             "PandoraStarPicked_E1",    "PrometheusStarPicked_E1",
@@ -106,6 +125,9 @@ startup {
             "PrometheusStarPicked_W1", "SphinxStarPicked_W1",
             "PandoraStarPicked_W2",    "PrometheusStarPicked_W2",
             "PrometheusStarPicked_W3", "SphinxStarPicked_W3",
+            "PandoraStarPicked_DLC2_GreenCluster", "SphinxStarPicked_DLC2_GreenCluster",
+            "PandoraStarPicked_DLC2_RedCluster", "PrometheusStarPicked_DLC2_RedCluster",
+            "PrometheusStarPicked_DLC2_BlueCluster", "SphinxStarPicked_DLC2_RedCluster",
         }),
         new Tuple<string, HashSet<string>>("split_labs", new HashSet<string>() {
             "E1.LostLab.Completed",
@@ -152,6 +174,27 @@ startup {
             "MS:PrometheusChainPin4",
             "MS:PrometheusStatueSolved",
         }),
+        new Tuple<string, HashSet<string>>("split_fast_travel", new HashSet<string>() {
+            "DLC2.FastTravelUnlocked:East",
+            "DLC2.FastTravelUnlocked:Landsite",
+            "DLC2.FastTravelUnlocked:LighthouseBlue",
+            "DLC2.FastTravelUnlocked:LighthouseGreen",
+            "DLC2.FastTravelUnlocked:LighthouseRed",
+            "DLC2.FastTravelUnlocked:North",
+            "DLC2.FastTravelUnlocked:West",
+            "DLC3.FastTravelUnlocked:IslandStart",
+            "DLC3.FastTravelUnlocked:L1",
+            "DLC3.FastTravelUnlocked:L2",
+            "DLC3.FastTravelUnlocked:L3",
+            "DLC3.FastTravelUnlocked:L4",
+            "DLC3.FastTravelUnlocked:M2",
+            "DLC3.FastTravelUnlocked:M3",
+            "DLC3.FastTravelUnlocked:M4",
+            "DLC3.FastTravelUnlocked:R1",
+            "DLC3.FastTravelUnlocked:R2",
+            "DLC3.FastTravelUnlocked:R3",
+            "DLC3.FastTravelUnlocked:R4",
+        }),
     };
 
     vars.PLAYER_STATE_NAMES = new List<string>() {
@@ -183,7 +226,47 @@ startup {
         "InArranger",
         "InGravityBeam",
         "Benchmarking",
+        // TODO: New state 0x1C?
+        // TODO: New state 0x1D?
     };
+
+    // To catch a DLC start we always look for a pair of log messages
+    // Main game only needs one, but we can just about fit it into the same structure
+    // First line to match (or null for none), second line to match, level
+    vars.START_LOG_LINE_DATA = new List<Tuple<System.Text.RegularExpressions.Regex, string, string>>() {
+        new Tuple<System.Text.RegularExpressions.Regex, string, string>(
+            null,
+            "LogLevelSequence: Starting new camera cut: 'None'",
+            "OriginalSim_WP"
+        ),
+        new Tuple<System.Text.RegularExpressions.Regex, string, string>(
+            // I trust the hash in the player start to stay the same, but not the FName index, hence
+            // using regexes
+            new System.Text.RegularExpressions.Regex(
+                @"^LogTemp: Object WBP_SkipCutsceneCUI_C_\d+ is not a valid context to retrieve"
+                + @" world settings. Using object BP_TalosPlayerStart_C_UAID_50EBF65C1DD049E901"
+            ),
+            "LogLevelSequence: Starting new camera cut: 'None'",
+            "DLC1"
+        ),
+        new Tuple<System.Text.RegularExpressions.Regex, string, string>(
+            new System.Text.RegularExpressions.Regex(
+                @"^LogTemp: Object WBP_SkipCutsceneCUI_C_\d+ is not a valid context to retrieve"
+                + @" world settings. Using object BP_TalosPlayerStart_C_UAID_50EBF65C1DD010E201"
+            ),
+            "LogBlueprintUserMessages: [BP_TalosWorldSettings_C] Saving game @BP_TalosPlayerStart_C_UAID_50EBF65C1DD0BDE101",
+            "DLC2"
+        ),
+        new Tuple<System.Text.RegularExpressions.Regex, string, string>(
+            new System.Text.RegularExpressions.Regex(
+                @"^LogTemp: Object WBP_SkipCutsceneCUI_C_\d+ is not a valid context to retrieve"
+                + @" world settings. Using object BP_TalosPlayerStart_C_UAID_50EBF65C1DD050E901"
+            ),
+            "LogBlueprintUserMessages: [BP_TalosWorldSettings_C] Saving game @BP_TalosPlayerStart_C_UAID_D843AE1E0C3B35DC01",
+            "DLC3"
+        ),
+    };
+    vars.inProgressStartLinePairs = new List<bool>() {true, false, false, false};
 
     vars.TimerModel = new TimerModel(){ CurrentState = timer };
     vars.reader = null;
@@ -283,9 +366,10 @@ init {
             baseAddr, 0xFC0, 0x38, 0x0, 0x30, 0x420
         ));
         vars.playerState = new MemoryWatcher<int>(new DeepPointer(
-            baseAddr, 0xFC0, 0x38, 0x0, 0x30, 0x8B8
+            baseAddr, 0xFC0, 0x38, 0x0, 0x30, 0x8E8 // TODO
         ));
 
+        /* TODO
         ptr = scanner.Scan(new SigScanTarget(3,
             "48 8B 8F ????????",        // mov rcx, [rdi+000001D0]                              <---
             "48 85 C9",                 // test rcx, rcx
@@ -297,8 +381,8 @@ init {
             print("Could not find SaveGame offset!");
             version = "ERROR";
             return;
-        }
-        var saveGameOffset = game.ReadValue<int>(ptr);
+        }*/
+        var saveGameOffset = 0x1C0; // game.ReadValue<int>(ptr);
 
         vars.lastPlayedWorld = new StringWatcher(new DeepPointer(
             baseAddr, 0xFC0, saveGameOffset, 0x28, 0x0, 0x48, 0x0
@@ -387,9 +471,45 @@ init {
 
         // None of these offsets point at UObjects (except the last), and they haven't been directly
         // validated, but they all appear to work
-        vars.streamingSettingsLevel = new MemoryWatcher<int>(new DeepPointer(
-            baseAddr, 0x20, 0x8, 0x230, 0x160
+
+        // I don't know what exactly this object is, nothing points to UObjects, and they haven't
+        // been validated
+        // At offset 0x8, there's a TMap of subsystem classes to their instances
+        // We look through all the instances until we find the `LevelHolderSubsystem`
+        vars.subSystemList = new MemoryWatcher<long>(new DeepPointer(
+            baseAddr, 0x20, 0x8
         ));
+        vars.numSubSystems = new MemoryWatcher<int>(new DeepPointer(
+            baseAddr, 0x20, 0x10
+        ));
+
+        bool firstRun = true;
+        vars.findStreamingSettingsLevel = (Action)(() => {
+            if (firstRun)
+            {
+                firstRun = false;
+            }
+            else if (!vars.subSystemList.Changed && !vars.numSubSystems.Changed)
+            {
+                return /*dummy*/;
+            }
+
+            for (var idx = 0; idx < vars.numSubSystems.Current; idx++) {
+                var name = game.ReadValue<int>(
+                    game.ReadPointer(new IntPtr(vars.subSystemList.Current + 0x18 * idx + 0x8)) + 0x18
+                );
+                if (vars.FNameToString((ulong)name) == "LevelHolderSubsystem") {
+                    // Have not validated this last offset either
+                    vars.streamingSettingsLevel = new MemoryWatcher<int>(new DeepPointer(
+                        baseAddr, 0x20, 0x8, 0x18 * idx + 0x8, 0x160
+                    ));
+                }
+            }
+        });
+
+        vars.subSystemList.Update(game);
+        vars.numSubSystems.Update(game);
+        vars.findStreamingSettingsLevel();
     }
 
     vars.isLoading = (Func<bool>)(() => vars.streamingSettingsLevel.Current >= 3
@@ -427,6 +547,10 @@ update {
     vars.utopiaPuzzleCount.Update(game);
     vars.achievementCount.Update(game);
     vars.loadingUiOffset.Update(game);
+    vars.subSystemList.Update(game);
+    vars.numSubSystems.Update(game);
+
+    vars.findStreamingSettingsLevel();
     vars.streamingSettingsLevel.Update(game);
 
     if (vars.gWorldFName.Changed) {
@@ -442,7 +566,9 @@ update {
 
         if (settings["start_any_level"]
             && vars.currentGWorld == "MainMenu2"
-            && newWorld == "Holder"
+            && (newWorld == "Holder"
+                // The DLCs don't use the holder world system
+                || newWorld == "DLC1" || newWorld == "DLC2" || newWorld == "DLC3")
         ) {
             if (vars.cheatManager.Current == 0 || !settings["start_no_cheating"]) {
                 print("Starting due to level load");
@@ -464,7 +590,7 @@ update {
                         : ("Unknown State " + vars.playerState.Current.ToString("X"));
         print("Player state changed from " + oldState + " to " + newState);
 
-        if (settings["split_athena"]
+        if (settings["split_final_cutscene"]
             && vars.lastPlayedWorld.Current == "AthenaTemple"
             && newState == "Cutscene"
         ) {
@@ -528,6 +654,16 @@ update {
                 // Check if to split on it
                 if (hasAlreadySplit) {
                     continue;
+                }
+
+                if (variable == "General.GameCompleted"
+                    && settings["split_final_cutscene"]
+                    && (vars.lastPlayedWorld.Current == "DLC1"
+                       || vars.lastPlayedWorld.Current == "DLC2"
+                       || vars.lastPlayedWorld.Current == "DLC3")) {
+                    print("Splitting for DLC completion");
+                    vars.TimerModel.Split();
+                    hasAlreadySplit = true;
                 }
 
                 foreach (var entry in vars.BOOL_VAR_SPLITS) {
@@ -611,25 +747,42 @@ update {
 
         // Handle all log parsing in one place
 
-        // Not going to trust the FName index to be constant, but the hash within the name should be
-        if (line.StartsWith("LogLevelSequence: Starting new camera cut: 'CameraActor_UAID_00FFDAACEB7F9A9001_")
-            && vars.lastPlayedWorld.Current == "OriginalSim_WP"
-        ) {
-            if (settings["reset_boot_cutscene"] && timer.CurrentPhase != TimerPhase.Ended ) {
-                print("Resetting for bootup cutscene restart");
-                vars.TimerModel.Reset();
-            }
+        for (var idx = 0; idx < vars.START_LOG_LINE_DATA.Count; idx++) {
+            var firstLine = vars.START_LOG_LINE_DATA[idx].Item1;
+            var secondLine = vars.START_LOG_LINE_DATA[idx].Item2;
+            var level = vars.START_LOG_LINE_DATA[idx].Item3;
 
-            if (vars.cheatManager.Current == 0 || !settings["start_no_cheating"]) {
-                if (settings["start_skip_bootup"]) {
-                    print("Starting run due to bootup cutscene end");
-                    vars.TimerModel.Start();
+            if (firstLine != null && firstLine.Match(line).Success) {
+                vars.inProgressStartLinePairs[idx] = true;
+                continue;
+            } else if (
+                vars.inProgressStartLinePairs[idx]
+                && line.StartsWith(secondLine)
+                && vars.lastPlayedWorld.Current == level
+            ) {
+                // Only clear if we actually have a line pair
+                if (firstLine != null) {
+                    vars.inProgressStartLinePairs[idx] = false;
                 }
-            } else {
-                print("Not starting due to cheats");
-            }
 
-            continue;
+                if (settings["reset_skip_first_cutscene"] && timer.CurrentPhase != TimerPhase.Ended ) {
+                    print("Resetting for " + level + " cutscene restart");
+                    vars.TimerModel.Reset();
+                }
+
+                if (vars.cheatManager.Current == 0 || !settings["start_no_cheating"]) {
+                    if (settings["start_skip_first_cutscene"]) {
+                        print("Starting run due to " + level + " cutscene end");
+                        vars.TimerModel.Start();
+                    }
+                } else {
+                    print("Not starting due to cheats");
+                }
+
+                continue;
+            } else if (firstLine != null) {
+                vars.inProgressStartLinePairs[idx] = false;
+            }
         }
     }
 }
