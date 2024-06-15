@@ -14,10 +14,11 @@ startup {
     settings.Add("split_labs", false, "Visting labs", "split_header");
     settings.Add("split_vtol", false, "VTOL flights", "split_header");
     settings.Add("split_achievements", false, "Achievement triggers", "split_header");
+    settings.Add("split_fast_travel", false, "Unlocking DLC Fast Travels", "split_header");
     settings.Add("split_mega_east", false, "Megastructure East lasers", "split_header");
     settings.Add("split_mega_north", false, "Megastructure North lasers", "split_header");
     settings.Add("split_mega_south", false, "Megastructure South pins", "split_header");
-    settings.Add("split_fast_travel", false, "Unlocking DLC Fast Travels", "split_header");
+    settings.Add("split_cube", false, "Isle of the Blessed Hexahedron", "split_header");
     settings.Add("split_final_cutscene", true, "Triggering the final cutscene", "split_header");
 
     settings.Add("reset_header", true, "Reset on ...");
@@ -195,6 +196,9 @@ startup {
             "DLC3.FastTravelUnlocked:R3",
             "DLC3.FastTravelUnlocked:R4",
         }),
+        new Tuple<string, HashSet<string>>("split_cube", new HashSet<string>() {
+            "DLC2.CubeSolved",
+        }),
     };
 
     vars.PLAYER_STATE_NAMES = new List<string>() {
@@ -226,8 +230,8 @@ startup {
         "InArranger",
         "InGravityBeam",
         "Benchmarking",
-        // TODO: New state 0x1C?
-        // TODO: New state 0x1D?
+        "OnEnergyBridge",
+        "InGravitySwitch",
     };
 
     // To catch a DLC start we always look for a pair of log messages
@@ -270,6 +274,9 @@ startup {
 
     vars.TimerModel = new TimerModel(){ CurrentState = timer };
     vars.reader = null;
+
+    // Sometimes things reference this before init and spam errors?
+    vars.isLoading = (Func<bool>)(() => false);
 }
 
 init {
@@ -365,24 +372,37 @@ init {
         vars.cheatManager = new MemoryWatcher<long>(new DeepPointer(
             baseAddr, 0xFC0, 0x38, 0x0, 0x30, 0x420
         ));
+
+        ptr = scanner.Scan(new SigScanTarget(3,
+            "0FB6 97 ????????",         // movzx edx, byte ptr [rdi+000008E8]                   <---
+            "48 8B CB",                 // mov rcx, rbx
+            "40 88 B7 ????????",        // mov [rdi+000008E8], sil
+            "E8 ????????",              // call Talos2-Win64-Shipping.exe+25C6060
+            "0FB6 97 ????????"          // movzx edx, byte ptr [rdi+000008E8]
+        ));
+        if (ptr == IntPtr.Zero) {
+            print("Could not find PlayerState offset!");
+            version = "ERROR";
+            return;
+        }
         vars.playerState = new MemoryWatcher<int>(new DeepPointer(
-            baseAddr, 0xFC0, 0x38, 0x0, 0x30, 0x8E8 // TODO
+            baseAddr, 0xFC0, 0x38, 0x0, 0x30, game.ReadValue<int>(ptr)
         ));
 
-        /* TODO
         ptr = scanner.Scan(new SigScanTarget(3,
-            "48 8B 8F ????????",        // mov rcx, [rdi+000001D0]                              <---
+            "48 8B ?? ????????",        // mov rcx, [rdi+000001D0]                              <---
             "48 85 C9",                 // test rcx, rcx
             "74 ??",                    // je Talos2-Win64-Shipping.exe+25EE729
             "E8 ????????",              // call Talos2-Win64-Shipping.exe+25E45F0
-            "48 63 83 ????????"         // movsxd rax, dword ptr [rbx+000005D0]
+            "48 63 ?? ????????",        // movsxd rax, dword ptr [rbx+000005D0]
+            "8D 70 FF"                  // lea esi, [rax-01]
         ));
         if (ptr == IntPtr.Zero) {
             print("Could not find SaveGame offset!");
             version = "ERROR";
             return;
-        }*/
-        var saveGameOffset = 0x1C0; // game.ReadValue<int>(ptr);
+        }
+        var saveGameOffset = game.ReadValue<int>(ptr);
 
         vars.lastPlayedWorld = new StringWatcher(new DeepPointer(
             baseAddr, 0xFC0, saveGameOffset, 0x28, 0x0, 0x48, 0x0
