@@ -514,7 +514,9 @@ init {
                 return /*dummy*/;
             }
 
-            for (var idx = 0; idx < vars.numSubSystems.Current; idx++) {
+            // Little bit of safety in case this becomes an invalid pointer
+            var numSubSystems = Math.Min(100, vars.numSubSystems.Current);
+            for (var idx = 0; idx < numSubSystems; idx++) {
                 var name = game.ReadValue<int>(
                     game.ReadPointer(new IntPtr(vars.subSystemList.Current + 0x18 * idx + 0x8)) + 0x18
                 );
