@@ -135,6 +135,12 @@ onStart {
     vars.delayedSplitTime = TimeSpan.Zero;
     vars.lastGameWorld = null;
 
+    /*
+    If the game is restarted while the timer is not running, we set this value to false
+    to prevent the timer from being paused at 0.00 until the next load screen.
+    */
+    vars.gameRestart = false;
+
     vars.resetCounter();
 }
 
