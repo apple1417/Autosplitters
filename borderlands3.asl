@@ -806,7 +806,8 @@ isLoading {
         || vars.currentWorld == "MenuMap_P"
     ) {
         // If you start on the main menu sometimes a single tick is counted before pausing, fix it
-        if (timer.CurrentAttemptDuration.TotalSeconds < 0.1) {
+        // If you have a start offset this fix is ignored
+        if (timer.CurrentAttemptDuration.TotalSeconds < 0.1 && timer.CurrentTime.GameTime < TimeSpan.FromSeconds(0.1)) {
             timer.SetGameTime(TimeSpan.Zero);
         }
 
