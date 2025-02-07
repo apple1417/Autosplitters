@@ -807,7 +807,7 @@ isLoading {
     ) {
         // If you start on the main menu sometimes a single tick is counted before pausing, fix it
         if (timer.CurrentAttemptDuration.TotalSeconds < 0.1) {
-            timer.SetGameTime(TimeSpan.Zero);
+            timer.SetGameTime(timer.Run.Offset);
         }
 
         // On reaching the first "real" load, we can say the restart's finished

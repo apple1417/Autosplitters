@@ -816,7 +816,7 @@ isLoading {
 onStart {
     if (vars.isLoading()) {
         timer.IsGameTimePaused = true;
-        timer.SetGameTime(TimeSpan.Zero);
+        timer.SetGameTime(timer.Run.Offset);
     }
 }
 

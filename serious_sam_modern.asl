@@ -293,7 +293,7 @@ onStart {
     // Ensure the timer is 0 if we start during a load
     if (vars.get_current("is_loading") != 0 || vars.get_current("is_continue") != 0) {
         timer.IsGameTimePaused = true;
-        timer.SetGameTime(TimeSpan.Zero);
+        timer.SetGameTime(timer.Run.Offset);
     }
 }
 
