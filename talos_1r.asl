@@ -11,7 +11,13 @@ startup {
     settings.Add("undo_return_level", true, "Undo on re-entering same world you just left", "split_hub");
     settings.Add("split_levels", false, "Any level transition", "split_header");
     settings.Add("split_arrangers", true, "Solving arrangers", "split_header");
-    settings.Add("split_sigils", false, "Collecting sigils/Gehenna bots", "split_header");
+    settings.Add("split_sigils", false, "Collecting sigils...", "split_header");
+    settings.Add("split_sigils_D", true, "Green tetrominoes", "split_sigils");
+    settings.Add("split_sigils_M", true, "Yellow tetrominoes", "split_sigils");
+    settings.Add("split_sigils_N", true, "Red tetrominoes / Gehenna bots", "split_sigils");
+    settings.Add("split_sigils_E", true, "Grey tetrominoes", "split_sigils");
+    settings.Add("split_sigils_*", true, "Stars", "split_sigils");
+    settings.Add("split_sigils_H", false, "Purple sigils", "split_sigils");
     settings.Add("split_final_terminal", true, "Final terminal inputs", "split_header");
 
     settings.Add("reset_header", true, "Reset on ...");
@@ -253,9 +259,15 @@ init {
             baseAddr, 0x10A8, 0x38, 0x0, 0x30, 0x420
         ));
 
+        vars.talosProgressPtr = new MemoryWatcher<long>(new DeepPointer(
+            baseAddr, 0x10A8, 0x1D8, 0x28, 0x0
+        ));
         vars.solvedArrangersCount = new MemoryWatcher<int>(new DeepPointer(
             baseAddr, 0x10A8, 0x1D8, 0x28, 0x0, 0x88
         ));
+        vars.collectedTetroArrayPtr = new DeepPointer(
+            baseAddr, 0x10A8, 0x1D8, 0x28, 0x0, 0x2D8, 0x0
+        );
         vars.collectedTetroCount = new MemoryWatcher<int>(new DeepPointer(
             baseAddr, 0x10A8, 0x1D8, 0x28, 0x0, 0x2E0
         ));
@@ -321,6 +333,7 @@ update {
     vars.gWorldFName.Update(game);
     vars.cheatManager.Update(game);
     vars.syncLoadCount.Update(game);
+    vars.talosProgressPtr.Update(game);
     vars.solvedArrangersCount.Update(game);
     vars.collectedTetroCount.Update(game);
 
@@ -405,6 +418,14 @@ update {
         );
     }
 
+    if (vars.talosProgressPtr.Changed) {
+        print("TalosProgress changed");
+
+        // Since this is a new save, reset the old values, so following logic can run from scratch
+        vars.solvedArrangersCount.Old = 0;
+        vars.collectedTetroCount.Old = 0;
+    }
+
     if (vars.solvedArrangersCount.Changed) {
         print(
             "Solved arranger count changed from "
@@ -415,6 +436,8 @@ update {
 
         if (
             settings["split_arrangers"]
+            // Don't split if this incremented due to loading a new save
+            && !vars.talosProgressPtr.Changed
             // For now, going with only splitting once if this jumps more
             && vars.solvedArrangersCount.Current > vars.solvedArrangersCount.Old
         ) {
@@ -431,12 +454,43 @@ update {
             + vars.collectedTetroCount.Current.ToString()
         );
 
-        if (
-            settings["split_sigils"]
-            && vars.collectedTetroCount.Current > vars.collectedTetroCount.Old
-        ) {
-            print("..splitting");
-            vars.TimerModel.Split();
+        if (vars.collectedTetroCount.Current > vars.collectedTetroCount.Old) {
+            const int TETRO_ENTRY_SIZE = 0x20;
+
+            // Read the entire new block of collected tetros in one go
+            IntPtr tetroArray;
+            vars.collectedTetroArrayPtr.DerefOffsets(game, out tetroArray);
+
+            IntPtr blockStartAddr = tetroArray + (vars.collectedTetroCount.Old * TETRO_ENTRY_SIZE);
+            int blockSize = (vars.collectedTetroCount.Current - vars.collectedTetroCount.Old) * TETRO_ENTRY_SIZE;
+            var blockData = game.ReadBytes(blockStartAddr, blockSize);
+
+            // Only allow splitting if the base setting is on, and if this change hasn't occured due
+            // to loading a new save. Still going to log everything though.
+            var allowSplit = settings["split_sigils"] && !vars.talosProgressPtr.Changed;
+
+            for (int i = 0; i < blockSize; i+= TETRO_ENTRY_SIZE) {
+                IntPtr varAddr = new IntPtr(BitConverter.ToInt64(blockData, i));
+                int varSize = BitConverter.ToInt32(blockData, i + 8);
+
+                var sigil = game.ReadString(varAddr, ReadStringType.UTF16, (varSize - 1) * 2);
+                print("- " + sigil);
+
+                if (!allowSplit) {
+                    continue;
+                }
+
+                var sigilColour = sigil[0];
+                if (!"DMNE*H".Contains(sigilColour)) {
+                    print("  ..splitting - unknown sigil type");
+                    vars.TimerModel.Split();
+                    allowSplit = false;
+                } else if (settings["split_sigils_" + sigilColour]) {
+                    print("  ..splitting");
+                    vars.TimerModel.Split();
+                    allowSplit = false;
+                }
+            }
         }
     }
 
