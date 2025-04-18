@@ -298,7 +298,7 @@ init {
 
     vars.isLoading = (Func<bool>)(() => {
         if (vars.syncLoadCount.Current > 0) {
-            if (vars.syncLoadCount.Old == 0) {
+            if (vars.syncLoadCount.Old == 0 && vars.currentGWorld != "MainMenu2") {
                 vars.midLoad = true;
             }
             return true;
