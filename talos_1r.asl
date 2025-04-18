@@ -53,61 +53,97 @@ startup {
     });
 
     vars.TRANSCENDENCE_ETERNALIZE_ENDING_STRINGS = new HashSet<string>() {
-        "/eternalize", // English, French, Japanese, Simplified Chinese, Traditional Chinese
-        "/eternare", // Italian
-        "/eternizar", // Spanish, Portuguese
-        "/prenesi u vječnost", // Croatian
-        "/uwiecznienie", // Polish
-        "/verewigen", // German
-        "/увековечить", // Russian
-        "/영생 부여", // Korean
+        /* English */               "/eternalize",
+        /* Czech */                 "/eternalize (zvěčnit)",
+        /* German */                "/verewigen",
+        /* Spanish */               "/eternizar",
+        /* French */                "/éternel",
+        /* Italian */               "/eternalizza",
+        /* Japanese */              "/不滅",
+        /* Korean */                "/영생 부여",
+        /* Polish */                "/uwiecznienie",
+        /* Brazilian Portuguese */  "/eternizar",
+        /* Russian */               "/увековечить",
+        /* Turkish */               "/sonsuzluk",
+        /* Simplified Chinese */    "/永恒",
+        /* Traditional Chinese */   "/eternalize",
 
-        "/prijeđi", // Croatian
-        "/transcend", // English, French, Japanese, Simplified Chinese, Traditional Chinese
-        "/transcendencja", // Polish
-        "/transcender", // Portuguese
-        "/transcendere", // Italian
-        "/transzendieren", // German
-        "/trascender", // Spanish
-        "/переступить", // Russian
-        "/초월", // Korean
+        /* English */               "/transcend",
+        /* Czech */                 "/transcend (jiná rovina bytí)",
+        /* German */                "/transzendieren",
+        /* Spanish */               "/trascender",
+        /* French */                "/transcender",
+        /* Italian */               "/trascendi",
+        /* Japanese */              "/超越",
+        /* Korean */                "/초월",
+        /* Polish */                "/transcendencja",
+        /* Brazilian Portuguese */  "/transcender",
+        /* Russian */               "/переступить",
+        /* Turkish */               "/askinlik",
+        /* Simplified Chinese */    "/超升",
+        /* Traditional Chinese */   "/超升",
     };
     vars.GEHENNA_ENDING_STRINGS = new HashSet<string>() {
-        "Good luck everyone", // English
-        "各位祝你們好運", // Traditional Chinese
-        "Bonne chance à tous", // French
-        "Viel Glück", // German
-        "Suerte a todos.", // Spanish
-        "Всем удачи", // Russian
-        "Buona fortuna a tutti", // Italian
-        "Powodzenia wszystkim", // Polish
-        "Hodně štěstí všem", // Czech
-        "İyi şanslar millet", // Turkish
+        /* English */               "Good luck everyone",
+        /* Czech */                 "Hodně štěstí všem",
+        /* German */                "Viel Glück",
+        /* Spanish */               "Suerte a todos.",
+        /* French */                "Bonne chance à tous",
+        /* Italian */               "Buona fortuna a tutti",
+        /* Japanese */              "全員の幸運を祈る",
+        /* Korean */                "다들 행운을 빌어요",
+        /* Polish */                "Powodzenia wszystkim",
+        /* Brazilian Portuguese */  "Boa sorte a todos",
+        /* Russian */               "Всем удачи",
+        /* Turkish */               "Herkese bol şans",
+        /* Simplified Chinese */    "祝诸位好运",
+        /* Traditional Chinese */   "祝諸位好運",
 
-        "Remember me", // English
-        "不要忘了我", // Traditional Chinese
-        "Ne m'oubliez pas", // French
-        "Denkt an mich", // German
-        "Recuérdame.", // Spanish
-        "Помните меня", // Russian
-        "Ricordatemi", // Italian
-        "Pamiętajcie o mnie", // Polish
-        "Pamatujte si na mě", // Czech
-        "Beni unutmayın", // Turkish
+        /* English */               "Remember me",
+        /* Czech */                 "Pamatujte si na mě",
+        /* German */                "Denkt an mich",
+        /* Spanish */               "Recuérdame.",
+        /* French */                "Ne m'oubliez pas",
+        /* Italian */               "Ricordatemi",
+        /* Japanese */              "私を忘れないでほしい",
+        /* Korean */                "날 기억해줘요",
+        /* Polish */                "Pamiętajcie o mnie",
+        /* Brazilian Portuguese */  "Lembrem-se de mim",
+        /* Russian */               "Помните меня",
+        /* Turkish */               "Beni hatırlayın",
+        /* Simplified Chinese */    "不要忘了我",
+        /* Traditional Chinese */   "勿忘我",
 
-        "Forgive me", // English
-        "原諒我", // Traditional Chinese
-        "Pardonnez-moi", // French
-        "Vergebt mir", // German
-        "Perdóname.", // Spanish
-        "Простите меня", // Russian
-        "Perdonatemi", // Italian
-        "Wybaczcie mi", // Polish
-        "Odpusťte mi", // Czech
-        "Beni affedin", // Turkish
+        /* English */               "Forgive me",
+        /* Czech */                 "Odpusťte mi",
+        /* German */                "Vergebt mir",
+        /* Spanish */               "Perdóname.",
+        /* French */                "Pardonnez-moi",
+        /* Italian */               "Perdonatemi",
+        /* Japanese */              "私を赦してほしい",
+        /* Korean */                "날 용서해줘요",
+        /* Polish */                "Wybaczcie mi",
+        /* Brazilian Portuguese */  "Perdoem-me",
+        /* Russian */               "Простите меня",
+        /* Turkish */               "Beni affedin",
+        /* Simplified Chinese */    "原谅我",
+        /* Traditional Chinese */   "原諒我",
     };
     vars.ITB_ENDING_STRINGS = new HashSet<string>() {
-        "/upload", // English
+        /* English */               "/upload",
+        /* Czech */                 "/upload",
+        /* German */                "/hochladen",
+        /* Spanish */               "/subir",
+        /* French */                "/chargement",
+        /* Italian */               "/caricamento",
+        /* Japanese */              "/アップロード",
+        /* Korean */                "/업로드",
+        /* Polish */                "/prześlij",
+        /* Brazilian Portuguese */  "/upload",
+        /* Russian */               "/отправить",
+        /* Turkish */               "/yukle",
+        /* Simplified Chinese */    "/upload",
+        /* Traditional Chinese */   "/上傳",
     };
 
     vars.TimerModel = new TimerModel(){ CurrentState = timer };
