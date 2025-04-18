@@ -226,6 +226,7 @@ init {
     vars.gWorldFName.Update(game);
     vars.currentGWorld = vars.FNameToString(vars.gWorldFName.Current);
     vars.lastNonHubWorld = "dummy";
+    vars.lastNonHubWorldSplitIdx = -9999;  // -1 is already used for before the run's started
 #endregion
 
 #region GEngine
@@ -339,20 +340,21 @@ update {
                 }
             }
 
-            bool alreadySplitLevel = false;
+            bool alreadySplitForAnyLevel = false;
             if (settings["split_levels"]) {
                 print("Splitting for level transition");
                 vars.TimerModel.Split();
-                alreadySplitLevel = true;
+                alreadySplitForAnyLevel = true;
             }
 
             if (vars.HUB_WORLDS.Contains(newWorld)) {
-                if (settings["split_hub"] && !alreadySplitLevel) {
+                if (settings["split_hub"] && !alreadySplitForAnyLevel) {
                     print("Splitting for return to hub");
                     vars.TimerModel.Split();
                 }
 
                 vars.lastNonHubWorld = vars.currentGWorld;
+                vars.lastNonHubWorldSplitIdx = timer.CurrentSplitIndex;
             }
 
             if (
@@ -360,13 +362,19 @@ update {
                 && settings["undo_return_level"]
                 && newWorld == vars.lastNonHubWorld
                 && vars.HUB_WORLDS.Contains(vars.currentGWorld)
+                && timer.CurrentPhase != TimerPhase.Ended
+                // Make sure the split index is the same as it was when we last transitioned into
+                // the hub, so that we don't undo if you've split inbetween
+                && ((vars.lastNonHubWorldSplitIdx == timer.CurrentSplitIndex)
+                    // If split on every level transition is on, we'll have already split an extra
+                    // time - we'll need to undo both
+                    || (alreadySplitForAnyLevel
+                        && (vars.lastNonHubWorldSplitIdx + 1) == timer.CurrentSplitIndex))
             ) {
                 print("Undoing split due to returning to last level");
                 vars.TimerModel.UndoSplit();
 
-                // With split on every level transition also on, having gone back will have caused
-                // an extra split, undo both
-                if (settings["split_levels"]) {
+                if (alreadySplitForAnyLevel) {
                     vars.TimerModel.UndoSplit();
                 }
             }
