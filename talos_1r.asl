@@ -347,7 +347,11 @@ update {
                 print("Clearing load due to loading main menu");
                 vars.midLoad = false;
 
-                if (settings["reset_main_menu"] && timer.CurrentPhase != TimerPhase.Ended) {
+                if (
+                    settings["reset_main_menu"]
+                    && vars.currentGWorld != "None"  // Don't reset on restarting the game
+                    && timer.CurrentPhase != TimerPhase.Ended
+                ) {
                     print("Resetting due to returning to main menu");
                     vars.TimerModel.Reset();
                 }
