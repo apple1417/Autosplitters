@@ -609,7 +609,7 @@ update {
                 // If we've jumped a far enough distance this tick
                 vars.Vect3DDistance(vars.oldCameraPos, newCameraPos) > cameraJumpData.Item1
                 // And we're now very close to the start coords
-                && vars.Vect3DDistance(newCameraPos, cameraJumpData.Item2) < 100
+                && vars.Vect3DDistance(newCameraPos, cameraJumpData.Item2) < 500
             ) {
                 // Assume the cutscene finished, start the run
                 if (vars.cheatManager.Current == 0 || !settings["start_no_cheating"]) {
