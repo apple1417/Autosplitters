@@ -10,7 +10,14 @@ startup {
     settings.Add("split_hub", true, "Entering Nexus/Hubs", "split_header");
     settings.Add("undo_return_level", true, "Undo on re-entering same world you just left", "split_hub");
     settings.Add("split_levels", false, "Any level transition", "split_header");
-    settings.Add("split_arrangers", true, "Solving arrangers", "split_header");
+    settings.Add("split_arrangers", true, "Solving arrangers...", "split_header");
+    settings.Add("split_arrangers_green", true, "Green", "split_arrangers");
+    settings.Add("split_arrangers_yellow", true, "Yellow", "split_arrangers");
+    settings.Add("split_arrangers_red", true, "Red", "split_arrangers");
+    settings.Add("split_arrangers_star", true, "Star", "split_arrangers");
+    settings.Add("split_arrangers_grey", true, "Grey", "split_arrangers");
+    settings.Add("split_arrangers_purple", true, "Purple", "split_arrangers");
+    settings.Add("split_arrangers_cyan", false, "Cyan", "split_arrangers");
     settings.Add("split_sigils", false, "Collecting sigils...", "split_header");
     settings.Add("split_sigils_D", true, "Green tetrominoes", "split_sigils");
     settings.Add("split_sigils_M", true, "Yellow tetrominoes", "split_sigils");
@@ -152,6 +159,51 @@ startup {
         /* Traditional Chinese */   "/上傳",
     };
 
+    vars.ARRANGER_SETTINGS = new Dictionary<string, string>() {
+        { "AlternativeEding", "split_arrangers_grey" },
+        { "Arcade_1_1", "split_arrangers_cyan" },
+        { "Arcade_1_2", "split_arrangers_cyan" },
+        { "Arcade_1_3", "split_arrangers_cyan" },
+        { "Arcade_1_4", "split_arrangers_cyan" },
+        { "Arcade_1_5", "split_arrangers_cyan" },
+        { "Arcade_2_1", "split_arrangers_cyan" },
+        { "Arcade_2_2", "split_arrangers_cyan" },
+        { "Arcade_2_3", "split_arrangers_cyan" },
+        { "Arcade_2_4", "split_arrangers_cyan" },
+        { "Arcade_2_5", "split_arrangers_cyan" },
+        { "Arcade_3_1", "split_arrangers_cyan" },
+        { "Arcade_3_2", "split_arrangers_cyan" },
+        { "Arcade_3_3", "split_arrangers_cyan" },
+        { "Arcade_3_4", "split_arrangers_cyan" },
+        { "Arcade_3_5", "split_arrangers_cyan" },
+        { "DoorEgypt", "split_arrangers_green" },
+        { "DoorMedieval", "split_arrangers_green" },
+        { "DoorRome", "split_arrangers_green" },
+        { "DoorTutorial", "split_arrangers_green" },
+        { "MechanicCube", "split_arrangers_yellow" },
+        { "MechanicFan", "split_arrangers_yellow" },
+        { "MechanicRods", "split_arrangers_yellow" },
+        { "MechanicShield", "split_arrangers_yellow" },
+        { "MechanicTime", "split_arrangers_yellow" },
+        { "Messenger_1", "split_arrangers_purple" },
+        { "Messenger_2", "split_arrangers_purple" },
+        { "Messenger_3", "split_arrangers_purple" },
+        { "Nexus1", "split_arrangers_red" },
+        { "Nexus2", "split_arrangers_red" },
+        { "Nexus3", "split_arrangers_red" },
+        { "Nexus4", "split_arrangers_red" },
+        { "Nexus5", "split_arrangers_red" },
+        { "SecretDoor1", "split_arrangers_star" },
+        { "SecretDoor2", "split_arrangers_star" },
+        { "SecretDoor3", "split_arrangers_star" },
+        { "DLC_01_Hub", "split_arrangers_grey" },
+        { "DLC_01_Secret", "split_arrangers_star" },
+        { "DLC_02_Nexus1", "split_arrangers_red" },
+        { "DLC_02_Nexus2", "split_arrangers_red" },
+        { "DLC_02_Nexus3", "split_arrangers_red" },
+        { "DLC_02_Secret", "split_arrangers_star" },
+    };
+
     vars.TimerModel = new TimerModel(){ CurrentState = timer };
     vars.reader = null;
 
@@ -262,9 +314,14 @@ init {
         vars.talosProgressPtr = new MemoryWatcher<long>(new DeepPointer(
             baseAddr, 0x10A8, 0x1D8, 0x28, 0x0
         ));
+
+        vars.solvedArrangersArrayPtr = new DeepPointer(
+            baseAddr, 0x10A8, 0x1D8, 0x28, 0x0, 0x80, 0x0
+        );
         vars.solvedArrangersCount = new MemoryWatcher<int>(new DeepPointer(
             baseAddr, 0x10A8, 0x1D8, 0x28, 0x0, 0x88
         ));
+
         vars.collectedTetroArrayPtr = new DeepPointer(
             baseAddr, 0x10A8, 0x1D8, 0x28, 0x0, 0x2D8, 0x0
         );
@@ -439,14 +496,45 @@ update {
         );
 
         if (
-            settings["split_arrangers"]
-            // Don't split if this incremented due to loading a new save
-            && !vars.talosProgressPtr.Changed
-            // For now, going with only splitting once if this jumps more
-            && vars.solvedArrangersCount.Current > vars.solvedArrangersCount.Old
+            vars.solvedArrangersCount.Current > vars.solvedArrangersCount.Old
+            && vars.solvedArrangersCount.Current < 1000 // Sanity check
         ) {
-            print("..splitting");
-            vars.TimerModel.Split();
+            const int ARRANGER_ENTRY_SIZE = 0x28;
+
+            // Read the entire new block of solved arrangers tetros in one go
+            IntPtr arrangerArray;
+            vars.solvedArrangersArrayPtr.DerefOffsets(game, out arrangerArray);
+
+            IntPtr blockStartAddr = arrangerArray + (vars.solvedArrangersCount.Old * ARRANGER_ENTRY_SIZE);
+            int blockSize = (vars.solvedArrangersCount.Current - vars.solvedArrangersCount.Old) * ARRANGER_ENTRY_SIZE;
+            var blockData = game.ReadBytes(blockStartAddr, blockSize);
+
+            // Only allow splitting if the base setting is on, and if this change hasn't occured due
+            // to loading a new save. Still going to log everything though.
+            var allowSplit = settings["split_arrangers"] && !vars.talosProgressPtr.Changed;
+
+            for (int i = 0; i < blockSize; i+= ARRANGER_ENTRY_SIZE) {
+                IntPtr arrangerAddr = new IntPtr(BitConverter.ToInt64(blockData, i));
+                int arrangerSize = BitConverter.ToInt32(blockData, i + 8);
+
+                var arranger = game.ReadString(arrangerAddr, ReadStringType.UTF16, (arrangerSize - 1) * 2);
+                print("- " + arranger);
+
+                if (!allowSplit) {
+                    continue;
+                }
+
+                string arrangerSetting;
+                if (!vars.ARRANGER_SETTINGS.TryGetValue(arranger, out arrangerSetting)) {
+                    print("  ..splitting - unknown arranger");
+                    vars.TimerModel.Split();
+                    allowSplit = false;
+                } else if (settings[arrangerSetting]) {
+                    print("  ..splitting");
+                    vars.TimerModel.Split();
+                    allowSplit = false;
+                }
+            }
         }
     }
 
@@ -458,7 +546,10 @@ update {
             + vars.collectedTetroCount.Current.ToString()
         );
 
-        if (vars.collectedTetroCount.Current > vars.collectedTetroCount.Old) {
+        if (
+            vars.collectedTetroCount.Current > vars.collectedTetroCount.Old
+            && vars.collectedTetroCount.Current < 1000 // Sanity check
+        ) {
             const int TETRO_ENTRY_SIZE = 0x20;
 
             // Read the entire new block of collected tetros in one go
@@ -474,10 +565,10 @@ update {
             var allowSplit = settings["split_sigils"] && !vars.talosProgressPtr.Changed;
 
             for (int i = 0; i < blockSize; i+= TETRO_ENTRY_SIZE) {
-                IntPtr varAddr = new IntPtr(BitConverter.ToInt64(blockData, i));
-                int varSize = BitConverter.ToInt32(blockData, i + 8);
+                IntPtr sigilAddr = new IntPtr(BitConverter.ToInt64(blockData, i));
+                int sigilSize = BitConverter.ToInt32(blockData, i + 8);
 
-                var sigil = game.ReadString(varAddr, ReadStringType.UTF16, (varSize - 1) * 2);
+                var sigil = game.ReadString(sigilAddr, ReadStringType.UTF16, (sigilSize - 1) * 2);
                 print("- " + sigil);
 
                 if (!allowSplit) {
