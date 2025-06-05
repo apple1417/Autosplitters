@@ -19,6 +19,8 @@ startup {
     settings.Add("split_krieg", true, "Krieg DLC ending cutscene", "split_header");
     settings.Add("use_char_time", false, "Track character time, instead of loadless.");
     settings.Add("count_sqs", false, "Count SQs in \"SQs:\" counter component (requires reload)");
+    settings.Add("no_bloom", false, "Disable bloom effects in game");
+    settings.Add("no_shadows", false, "Disable dynamic shadows in game");
 #endregion
 
     timer.IsGameTimePaused = true;
@@ -721,6 +723,43 @@ init {
         }), vars.cts.Token);
 #endregion
     }
+
+#region Graphics
+    ptr = scanner.Scan(new SigScanTarget(3,
+        "48 89 05 ????????",    // mov [7FF79A68A208], rax
+        "E8 ????????",          // call 7FF79795BAE4
+        "48 8B 05 ????????",    // mov rax, [7FF79A68A208]
+        "39 38",                // cmp [rax], edi
+        "7F ??",                // jg 7FF7962CB19E
+        "89 BB ????????",       // mov [rbx+00001468], edi
+        "48 8B 43 10"          // mov rax, [rbx+10]
+    ));
+    if (ptr == IntPtr.Zero) {
+        print("Could not find bloom pointer!");
+        // Not an error
+        vars.bloom = null;
+    } else {
+        var relPos = (int)(ptr.ToInt64() - exe.BaseAddress.ToInt64() + 4);
+        vars.bloom = new DeepPointer(game.ReadValue<int>(ptr) + relPos, 0x0);
+    }
+    vars.lastNoBloomSetting = false;
+
+    ptr = scanner.Scan(new SigScanTarget(3,
+        "48 8B 05 ????????",    // mov rax, [7FF79A68B330]
+        "39 28",                // cmp [rax], ebp
+        "7F ??",                // jg 7FF7962EFCD1
+        "83 63 ?? BF"           // and dword ptr [rbx+04], -41
+    ));
+    if (ptr == IntPtr.Zero) {
+        print("Could not find dynamic shadows pointer!");
+        // Not an error
+        vars.dynamicShadows = null;
+    } else {
+        var relPos = (int)(ptr.ToInt64() - exe.BaseAddress.ToInt64() + 4);
+        vars.dynamicShadows = new DeepPointer(game.ReadValue<int>(ptr) + relPos, 0x0);
+    }
+    vars.lastNoDynamicShadowsSetting = false;
+#endregion
 }
 
 exit {
@@ -766,6 +805,49 @@ update {
             + " to "
             + vars.watchers["is_loading"].Current.ToString("X")
         );
+    }
+#endregion
+
+#region Graphics
+    if (vars.bloom != null) {
+        // If the setting is on, or if it was just turned off
+        var noBloomSetting = settings["no_bloom"];
+        if (noBloomSetting || vars.lastNoBloomSetting) {
+            // Read the value
+            IntPtr bloomAddr;
+            vars.bloom.DerefOffsets(game, out bloomAddr);
+            var bloomValue = game.ReadValue<int>(bloomAddr);
+
+            // And update it if it's not as expected
+            // If we just turned off, we'll only do this once
+            var expectedBloom = noBloomSetting ? 0 : 5;
+            if (bloomValue != expectedBloom) {
+                print("Updating bloom to " + expectedBloom.ToString());
+                game.WriteValue<int>(bloomAddr, expectedBloom);
+            }
+        }
+
+        vars.lastNoBloomSetting = noBloomSetting;
+    }
+
+    if (vars.dynamicShadows != null) {
+        // If the setting is on, or if it was just turned off
+        var noDynamicShadowsSetting = settings["no_shadows"];
+        if (noDynamicShadowsSetting || vars.lastNoDynamicShadowsSetting) {
+            // Read the value
+            IntPtr dynamicShadowsAddr;
+            vars.dynamicShadows.DerefOffsets(game, out dynamicShadowsAddr);
+            var dynamicShadowsValue = game.ReadValue<int>(dynamicShadowsAddr);
+
+            // And update it if it's not as expected
+            var expectedDynamicShadows = noDynamicShadowsSetting ? 0 : 2;
+            if (dynamicShadowsValue != expectedDynamicShadows) {
+                print("Updating dynamic shadows to " + expectedDynamicShadows.ToString());
+                game.WriteValue<int>(dynamicShadowsAddr, expectedDynamicShadows);
+            }
+        }
+
+        vars.lastNoDynamicShadowsSetting = noDynamicShadowsSetting;
     }
 #endregion
 }
